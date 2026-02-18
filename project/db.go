@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var db *sql.DB
 
-func initDB() {
+func initDB(dataDir string) {
 	var err error
-	db, err = sql.Open("sqlite3", "./rateit.db?_journal_mode=WAL&_foreign_keys=on")
+	db, err = sql.Open("sqlite3", dataDir+"/rateit.db?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -113,6 +115,24 @@ func initDB() {
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 
+	// New institution metadata columns
+	db.Exec("ALTER TABLE topics ADD COLUMN city TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE topics ADD COLUMN ownership TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE topics ADD COLUMN tuition_min INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE topics ADD COLUMN tuition_max INTEGER NOT NULL DEFAULT 0")
+	db.Exec("ALTER TABLE topics ADD COLUMN programs TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE topics ADD COLUMN pros TEXT NOT NULL DEFAULT ''")
+	db.Exec("ALTER TABLE topics ADD COLUMN cons TEXT NOT NULL DEFAULT ''")
+
+	// Institution photos table
+	db.Exec(`CREATE TABLE IF NOT EXISTS institution_photos (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		institution_id INTEGER NOT NULL REFERENCES topics(id),
+		path TEXT NOT NULL,
+		uploaded_by INTEGER NOT NULL REFERENCES users(id),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
 	// User mutes table
 	db.Exec(`CREATE TABLE IF NOT EXISTS user_mutes (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +140,27 @@ func initDB() {
 		user_id INTEGER NOT NULL REFERENCES users(id),
 		muted_until DATETIME NOT NULL,
 		muted_by INTEGER NOT NULL REFERENCES users(id),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Verification requests table
+	db.Exec(`CREATE TABLE IF NOT EXISTS verification_requests (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		institution_id INTEGER NOT NULL REFERENCES topics(id),
+		user_id INTEGER NOT NULL REFERENCES users(id),
+		image_path TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'pending',
+		reviewed_by INTEGER REFERENCES users(id),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		reviewed_at DATETIME
+	)`)
+
+	// User bans table
+	db.Exec(`CREATE TABLE IF NOT EXISTS user_bans (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+		banned_by INTEGER NOT NULL REFERENCES users(id),
+		reason TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 }
@@ -220,20 +261,40 @@ type InstitutionSummary struct {
 	CreatedAt       string  `json:"created_at"`
 	CoverImage      string  `json:"cover_image"`
 	EmailDomain     string  `json:"email_domain"`
+	City            string  `json:"city"`
+	Ownership       string  `json:"ownership"`
+	TuitionMin      int     `json:"tuition_min"`
+	TuitionMax      int     `json:"tuition_max"`
+	Programs        string  `json:"programs"`
+}
+
+type InstitutionPhoto struct {
+	ID        int64  `json:"id"`
+	Path      string `json:"path"`
+	CreatedAt string `json:"created_at"`
 }
 
 type InstitutionDetail struct {
-	ID              int64          `json:"id"`
-	Title           string         `json:"title"`
-	InstitutionType string         `json:"institution_type"`
-	Description     string         `json:"description"`
-	CreatedBy       string         `json:"created_by"`
-	AvgRating       float64        `json:"avg_rating"`
-	NumRating       int            `json:"num_ratings"`
-	CreatedAt       string         `json:"created_at"`
-	CoverImage      string         `json:"cover_image"`
-	EmailDomain     string         `json:"email_domain"`
-	Ratings         []RatingDetail `json:"ratings"`
+	ID              int64              `json:"id"`
+	Title           string             `json:"title"`
+	InstitutionType string             `json:"institution_type"`
+	Description     string             `json:"description"`
+	CreatedBy       string             `json:"created_by"`
+	CreatedByID     int64              `json:"created_by_id"`
+	AvgRating       float64            `json:"avg_rating"`
+	NumRating       int                `json:"num_ratings"`
+	CreatedAt       string             `json:"created_at"`
+	CoverImage      string             `json:"cover_image"`
+	EmailDomain     string             `json:"email_domain"`
+	City            string             `json:"city"`
+	Ownership       string             `json:"ownership"`
+	TuitionMin      int                `json:"tuition_min"`
+	TuitionMax      int                `json:"tuition_max"`
+	Programs        string             `json:"programs"`
+	Pros            string             `json:"pros"`
+	Cons            string             `json:"cons"`
+	Photos          []InstitutionPhoto `json:"photos"`
+	Ratings         []RatingDetail     `json:"ratings"`
 }
 
 type RatingDetail struct {
@@ -251,25 +312,68 @@ type RatingDetail struct {
 	IsVerified           bool   `json:"is_verified"`
 }
 
-func searchInstitutions(query string) ([]InstitutionSummary, error) {
+type InstitutionFilter struct {
+	Query      string
+	City       string
+	Ownership  string
+	Programs   string
+	MinRating  float64
+	MinTuition int
+	MaxTuition int
+}
+
+func searchInstitutions(f InstitutionFilter) ([]InstitutionSummary, error) {
 	q := `
 		SELECT t.id, t.title, COALESCE(t.institution_type, ''), COALESCE(t.description, ''),
 			u.username,
 			COALESCE(AVG(r.score), 0), COUNT(r.id), t.created_at,
-			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, '')
+			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, ''),
+			COALESCE(t.city, ''), COALESCE(t.ownership, ''),
+			COALESCE(t.tuition_min, 0), COALESCE(t.tuition_max, 0),
+			COALESCE(t.programs, '')
 		FROM topics t
 		JOIN users u ON t.created_by = u.id
 		LEFT JOIN ratings r ON r.topic_id = t.id
 	`
-	var rows *sql.Rows
-	var err error
-	if query != "" {
-		q += " WHERE t.title LIKE ? GROUP BY t.id ORDER BY t.created_at DESC"
-		rows, err = db.Query(q, "%"+query+"%")
-	} else {
-		q += " GROUP BY t.id ORDER BY t.created_at DESC"
-		rows, err = db.Query(q)
+	var conditions []string
+	var args []interface{}
+
+	if f.Query != "" {
+		conditions = append(conditions, "t.title LIKE ?")
+		args = append(args, "%"+f.Query+"%")
 	}
+	if f.City != "" {
+		conditions = append(conditions, "LOWER(t.city) LIKE ?")
+		args = append(args, "%"+strings.ToLower(f.City)+"%")
+	}
+	if f.Ownership != "" {
+		conditions = append(conditions, "t.ownership = ?")
+		args = append(args, f.Ownership)
+	}
+	if f.Programs != "" {
+		conditions = append(conditions, "LOWER(t.programs) LIKE ?")
+		args = append(args, "%"+strings.ToLower(f.Programs)+"%")
+	}
+	if f.MinTuition > 0 {
+		conditions = append(conditions, "t.tuition_min >= ?")
+		args = append(args, f.MinTuition)
+	}
+	if f.MaxTuition > 0 {
+		conditions = append(conditions, "(t.tuition_max <= ? OR t.tuition_max = 0)")
+		args = append(args, f.MaxTuition)
+	}
+
+	if len(conditions) > 0 {
+		q += " WHERE " + strings.Join(conditions, " AND ")
+	}
+	q += " GROUP BY t.id"
+
+	if f.MinRating > 0 {
+		q += fmt.Sprintf(" HAVING AVG(r.score) >= %g", f.MinRating)
+	}
+	q += " ORDER BY t.created_at DESC"
+
+	rows, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +382,9 @@ func searchInstitutions(query string) ([]InstitutionSummary, error) {
 	var items []InstitutionSummary
 	for rows.Next() {
 		var t InstitutionSummary
-		if err := rows.Scan(&t.ID, &t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy, &t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy,
+			&t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain,
+			&t.City, &t.Ownership, &t.TuitionMin, &t.TuitionMax, &t.Programs); err != nil {
 			return nil, err
 		}
 		items = append(items, t)
@@ -286,28 +392,46 @@ func searchInstitutions(query string) ([]InstitutionSummary, error) {
 	return items, nil
 }
 
-func createInstitution(title, instType, description, emailDomain string, createdBy int64) (int64, error) {
-	res, err := db.Exec("INSERT INTO topics (title, institution_type, description, email_domain, created_by) VALUES (?, ?, ?, ?, ?)", title, instType, description, emailDomain, createdBy)
+func createInstitution(title, instType, description, emailDomain, city, ownership string, tuitionMin, tuitionMax int, createdBy int64) (int64, error) {
+	res, err := db.Exec("INSERT INTO topics (title, institution_type, description, email_domain, city, ownership, tuition_min, tuition_max, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		title, instType, description, emailDomain, city, ownership, tuitionMin, tuitionMax, createdBy)
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
+func updateInstitutionMeta(instID int64, city, ownership, programs, pros, cons string, tuitionMin, tuitionMax int) error {
+	_, err := db.Exec(`UPDATE topics SET city=?, ownership=?, programs=?, pros=?, cons=?, tuition_min=?, tuition_max=? WHERE id=?`,
+		city, ownership, programs, pros, cons, tuitionMin, tuitionMax, instID)
+	return err
+}
+
 func getInstitutionDetail(instID int64) (*InstitutionDetail, error) {
 	t := &InstitutionDetail{ID: instID}
 	err := db.QueryRow(`
 		SELECT t.title, COALESCE(t.institution_type, ''), COALESCE(t.description, ''),
-			u.username, COALESCE(AVG(r.score), 0), COUNT(r.id), t.created_at,
-			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, '')
+			u.username, t.created_by, COALESCE(AVG(r.score), 0), COUNT(r.id), t.created_at,
+			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, ''),
+			COALESCE(t.city, ''), COALESCE(t.ownership, ''),
+			COALESCE(t.tuition_min, 0), COALESCE(t.tuition_max, 0),
+			COALESCE(t.programs, ''), COALESCE(t.pros, ''), COALESCE(t.cons, '')
 		FROM topics t
 		JOIN users u ON t.created_by = u.id
 		LEFT JOIN ratings r ON r.topic_id = t.id
 		WHERE t.id = ?
 		GROUP BY t.id
-	`, instID).Scan(&t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy, &t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain)
+	`, instID).Scan(&t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy, &t.CreatedByID,
+		&t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain,
+		&t.City, &t.Ownership, &t.TuitionMin, &t.TuitionMax, &t.Programs, &t.Pros, &t.Cons)
 	if err != nil {
 		return nil, err
+	}
+
+	// Load photos
+	t.Photos, _ = getInstitutionPhotos(instID)
+	if t.Photos == nil {
+		t.Photos = []InstitutionPhoto{}
 	}
 
 	rows, err := db.Query(`
@@ -370,6 +494,47 @@ func upsertRating(topicID, userID int64, academic, infrastructure, studentLife, 
 func updateTopicCover(topicID int64, path string) error {
 	_, err := db.Exec(`UPDATE topics SET cover_image = ? WHERE id = ?`, path, topicID)
 	return err
+}
+
+func getInstitutionPhotos(instID int64) ([]InstitutionPhoto, error) {
+	rows, err := db.Query(`SELECT id, path, created_at FROM institution_photos WHERE institution_id = ? ORDER BY created_at ASC`, instID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var photos []InstitutionPhoto
+	for rows.Next() {
+		var p InstitutionPhoto
+		if err := rows.Scan(&p.ID, &p.Path, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		photos = append(photos, p)
+	}
+	return photos, nil
+}
+
+func addInstitutionPhoto(instID, userID int64, path string) (int64, error) {
+	res, err := db.Exec(`INSERT INTO institution_photos (institution_id, uploaded_by, path) VALUES (?, ?, ?)`, instID, userID, path)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func deleteInstitutionPhoto(photoID int64) error {
+	var path string
+	db.QueryRow("SELECT path FROM institution_photos WHERE id = ?", photoID).Scan(&path)
+	_, err := db.Exec("DELETE FROM institution_photos WHERE id = ?", photoID)
+	if err == nil && path != "" {
+		os.Remove(path)
+	}
+	return err
+}
+
+func getInstitutionCreator(instID int64) (int64, error) {
+	var creatorID int64
+	err := db.QueryRow("SELECT created_by FROM topics WHERE id = ?", instID).Scan(&creatorID)
+	return creatorID, err
 }
 
 // ==================== Discussion Comments ====================
@@ -601,7 +766,10 @@ func getUserInstitutions(userID int64) ([]InstitutionSummary, error) {
 			COALESCE((SELECT AVG(score) FROM ratings WHERE topic_id = t.id), 0),
 			(SELECT COUNT(*) FROM ratings WHERE topic_id = t.id),
 			t.created_at,
-			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, '')
+			COALESCE(t.cover_image, ''), COALESCE(t.email_domain, ''),
+			COALESCE(t.city, ''), COALESCE(t.ownership, ''),
+			COALESCE(t.tuition_min, 0), COALESCE(t.tuition_max, 0),
+			COALESCE(t.programs, '')
 		FROM topics t
 		JOIN users u ON t.created_by = u.id
 		JOIN ratings r ON r.topic_id = t.id AND r.user_id = ?
@@ -615,7 +783,9 @@ func getUserInstitutions(userID int64) ([]InstitutionSummary, error) {
 	var items []InstitutionSummary
 	for rows.Next() {
 		var t InstitutionSummary
-		if err := rows.Scan(&t.ID, &t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy, &t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain); err != nil {
+		if err := rows.Scan(&t.ID, &t.Title, &t.InstitutionType, &t.Description, &t.CreatedBy,
+			&t.AvgRating, &t.NumRating, &t.CreatedAt, &t.CoverImage, &t.EmailDomain,
+			&t.City, &t.Ownership, &t.TuitionMin, &t.TuitionMax, &t.Programs); err != nil {
 			return nil, err
 		}
 		items = append(items, t)
@@ -634,15 +804,18 @@ type AdminUser struct {
 	ContributionPoints int    `json:"contribution_points"`
 	RatingCount        int    `json:"rating_count"`
 	CreatedAt          string `json:"created_at"`
+	IsBanned           bool   `json:"is_banned"`
 }
 
 func getAllUsersWithScores() ([]AdminUser, error) {
 	rows, err := db.Query(`
 		SELECT u.id, u.username, COALESCE(p.contribution_points, 0),
 			(SELECT COUNT(*) FROM ratings WHERE user_id = u.id),
-			u.created_at
+			u.created_at,
+			CASE WHEN b.id IS NOT NULL THEN 1 ELSE 0 END AS is_banned
 		FROM users u
 		LEFT JOIN user_profiles p ON p.user_id = u.id
+		LEFT JOIN user_bans b ON b.user_id = u.id
 		ORDER BY u.id
 	`)
 	if err != nil {
@@ -653,9 +826,11 @@ func getAllUsersWithScores() ([]AdminUser, error) {
 	var users []AdminUser
 	for rows.Next() {
 		var u AdminUser
-		if err := rows.Scan(&u.ID, &u.Username, &u.ContributionPoints, &u.RatingCount, &u.CreatedAt); err != nil {
+		var isBanned int
+		if err := rows.Scan(&u.ID, &u.Username, &u.ContributionPoints, &u.RatingCount, &u.CreatedAt, &isBanned); err != nil {
 			return nil, err
 		}
+		u.IsBanned = isBanned == 1
 		users = append(users, u)
 	}
 	return users, nil
@@ -731,6 +906,245 @@ func getUserEducation(userID int64) ([]EducationEntry, error) {
 		entries = []EducationEntry{}
 	}
 	return entries, nil
+}
+
+// ==================== Verification Requests ====================
+
+type VerificationRequest struct {
+	ID              int64   `json:"id"`
+	InstitutionID   int64   `json:"institution_id"`
+	InstitutionName string  `json:"institution_name"`
+	UserID          int64   `json:"user_id"`
+	Username        string  `json:"username"`
+	ImagePath       string  `json:"image_path"`
+	Status          string  `json:"status"`
+	ReviewedBy      *int64  `json:"reviewed_by"`
+	CreatedAt       string  `json:"created_at"`
+	ReviewedAt      *string `json:"reviewed_at"`
+}
+
+func createVerificationRequest(instID, userID int64, imagePath string) (int64, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM verification_requests WHERE user_id=? AND institution_id=? AND status='pending'", userID, instID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	if count > 0 {
+		return 0, fmt.Errorf("you already have a pending verification request for this institution")
+	}
+	res, err := db.Exec("INSERT INTO verification_requests (institution_id, user_id, image_path) VALUES (?, ?, ?)", instID, userID, imagePath)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func getVerificationRequestsByInstitution(instID int64) ([]VerificationRequest, error) {
+	rows, err := db.Query(`
+		SELECT vr.id, vr.institution_id, t.title, vr.user_id, u.username, vr.image_path, vr.status, vr.reviewed_by, vr.created_at, vr.reviewed_at
+		FROM verification_requests vr
+		JOIN users u ON vr.user_id = u.id
+		JOIN topics t ON vr.institution_id = t.id
+		WHERE vr.institution_id=? AND vr.status='pending'
+		ORDER BY vr.created_at ASC
+	`, instID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []VerificationRequest
+	for rows.Next() {
+		var vr VerificationRequest
+		if err := rows.Scan(&vr.ID, &vr.InstitutionID, &vr.InstitutionName, &vr.UserID, &vr.Username, &vr.ImagePath, &vr.Status, &vr.ReviewedBy, &vr.CreatedAt, &vr.ReviewedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, vr)
+	}
+	if result == nil {
+		result = []VerificationRequest{}
+	}
+	return result, nil
+}
+
+func getAllPendingVerificationRequests() ([]VerificationRequest, error) {
+	rows, err := db.Query(`
+		SELECT vr.id, vr.institution_id, t.title, vr.user_id, u.username, vr.image_path, vr.status, vr.reviewed_by, vr.created_at, vr.reviewed_at
+		FROM verification_requests vr
+		JOIN users u ON vr.user_id = u.id
+		JOIN topics t ON vr.institution_id = t.id
+		WHERE vr.status='pending'
+		ORDER BY vr.created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []VerificationRequest
+	for rows.Next() {
+		var vr VerificationRequest
+		if err := rows.Scan(&vr.ID, &vr.InstitutionID, &vr.InstitutionName, &vr.UserID, &vr.Username, &vr.ImagePath, &vr.Status, &vr.ReviewedBy, &vr.CreatedAt, &vr.ReviewedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, vr)
+	}
+	if result == nil {
+		result = []VerificationRequest{}
+	}
+	return result, nil
+}
+
+func getVerificationRequest(requestID int64) (*VerificationRequest, error) {
+	vr := &VerificationRequest{}
+	err := db.QueryRow(`
+		SELECT vr.id, vr.institution_id, t.title, vr.user_id, u.username, vr.image_path, vr.status, vr.reviewed_by, vr.created_at, vr.reviewed_at
+		FROM verification_requests vr
+		JOIN users u ON vr.user_id = u.id
+		JOIN topics t ON vr.institution_id = t.id
+		WHERE vr.id=?
+	`, requestID).Scan(&vr.ID, &vr.InstitutionID, &vr.InstitutionName, &vr.UserID, &vr.Username, &vr.ImagePath, &vr.Status, &vr.ReviewedBy, &vr.CreatedAt, &vr.ReviewedAt)
+	if err != nil {
+		return nil, err
+	}
+	return vr, nil
+}
+
+func reviewVerificationRequest(requestID int64, status string, reviewerID int64) error {
+	// First get the request to find userID and instID if approving
+	vr, err := getVerificationRequest(requestID)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("UPDATE verification_requests SET status=?, reviewed_by=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=?", status, reviewerID, requestID)
+	if err != nil {
+		return err
+	}
+	if status == "approved" {
+		return verifyUserForInstitution(vr.UserID, vr.InstitutionID, "photo-proof")
+	}
+	return nil
+}
+
+// ==================== Bans ====================
+
+func banUser(userID, bannedBy int64, reason string) error {
+	_, err := db.Exec("INSERT OR REPLACE INTO user_bans (user_id, banned_by, reason) VALUES (?, ?, ?)", userID, bannedBy, reason)
+	return err
+}
+
+func unbanUser(userID int64) error {
+	_, err := db.Exec("DELETE FROM user_bans WHERE user_id = ?", userID)
+	return err
+}
+
+func isUserBanned(userID int64) (bool, error) {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM user_bans WHERE user_id = ?", userID).Scan(&count)
+	return count > 0, err
+}
+
+func getAllBannedUsers() ([]map[string]interface{}, error) {
+	rows, err := db.Query(`
+		SELECT b.user_id, u.username, b.reason, b.created_at, banner.username as banned_by_name
+		FROM user_bans b
+		JOIN users u ON b.user_id = u.id
+		JOIN users banner ON b.banned_by = banner.id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []map[string]interface{}
+	for rows.Next() {
+		var userID int64
+		var username, reason, createdAt, bannedByName string
+		if err := rows.Scan(&userID, &username, &reason, &createdAt, &bannedByName); err != nil {
+			return nil, err
+		}
+		result = append(result, map[string]interface{}{
+			"user_id":        userID,
+			"username":       username,
+			"reason":         reason,
+			"created_at":     createdAt,
+			"banned_by_name": bannedByName,
+		})
+	}
+	if result == nil {
+		result = []map[string]interface{}{}
+	}
+	return result, nil
+}
+
+func getUserActivity(userID int64) (map[string]interface{}, error) {
+	// Ratings
+	ratingRows, err := db.Query(`
+		SELECT r.id, t.title, r.score, r.comment, r.created_at
+		FROM ratings r JOIN topics t ON r.topic_id = t.id
+		WHERE r.user_id=?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer ratingRows.Close()
+	var ratings []map[string]interface{}
+	for ratingRows.Next() {
+		var id int64
+		var title, comment, createdAt string
+		var score int
+		if err := ratingRows.Scan(&id, &title, &score, &comment, &createdAt); err != nil {
+			return nil, err
+		}
+		ratings = append(ratings, map[string]interface{}{"id": id, "title": title, "score": score, "comment": comment, "created_at": createdAt})
+	}
+	if ratings == nil {
+		ratings = []map[string]interface{}{}
+	}
+
+	// Comments
+	commentRows, err := db.Query(`
+		SELECT dc.id, t.title, dc.content, dc.created_at
+		FROM discussion_comments dc JOIN topics t ON dc.institution_id = t.id
+		WHERE dc.user_id=?
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer commentRows.Close()
+	var comments []map[string]interface{}
+	for commentRows.Next() {
+		var id int64
+		var title, content, createdAt string
+		if err := commentRows.Scan(&id, &title, &content, &createdAt); err != nil {
+			return nil, err
+		}
+		comments = append(comments, map[string]interface{}{"id": id, "title": title, "content": content, "created_at": createdAt})
+	}
+	if comments == nil {
+		comments = []map[string]interface{}{}
+	}
+
+	// Events
+	eventRows, err := db.Query(`
+		SELECT event_type, points, created_at FROM contribution_events
+		WHERE user_id=? ORDER BY created_at DESC LIMIT 50
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer eventRows.Close()
+	var events []map[string]interface{}
+	for eventRows.Next() {
+		var eventType, createdAt string
+		var points int
+		if err := eventRows.Scan(&eventType, &points, &createdAt); err != nil {
+			return nil, err
+		}
+		events = append(events, map[string]interface{}{"event_type": eventType, "points": points, "created_at": createdAt})
+	}
+	if events == nil {
+		events = []map[string]interface{}{}
+	}
+
+	return map[string]interface{}{"ratings": ratings, "comments": comments, "events": events}, nil
 }
 
 // ==================== Verification ====================

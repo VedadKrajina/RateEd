@@ -149,6 +149,12 @@ function initHomePage() {
             window.location.href = '/profile/' + user.username;
         });
         updatePointsBadge(user.contribution_points);
+        if (user.is_banned) {
+            const notice = document.createElement('div');
+            notice.className = 'banned-notice';
+            notice.textContent = 'Your account has been banned. You can browse content but cannot post or interact.';
+            document.querySelector('.container').prepend(notice);
+        }
 
         // Show/hide create section based on points
         const createSection = document.getElementById('create-section');
@@ -170,31 +176,71 @@ function initHomePage() {
         window.location.href = '/';
     });
 
-    async function loadInstitutions(query) {
-        const url = query ? `/api/institutions?q=${encodeURIComponent(query)}` : '/api/institutions';
+    function buildFilterParams() {
+        const params = new URLSearchParams();
+        const q = searchInput.value.trim();
+        if (q) params.set('q', q);
+        const city = document.getElementById('filter-city')?.value.trim();
+        if (city) params.set('city', city);
+        const ownership = document.getElementById('filter-ownership')?.value;
+        if (ownership) params.set('ownership', ownership);
+        const programs = document.getElementById('filter-programs')?.value.trim();
+        if (programs) params.set('programs', programs);
+        const minRating = document.getElementById('filter-rating')?.value;
+        if (minRating) params.set('min_rating', minRating);
+        const minTuition = document.getElementById('filter-tuition-min')?.value;
+        if (minTuition) params.set('min_tuition', minTuition);
+        const maxTuition = document.getElementById('filter-tuition-max')?.value;
+        if (maxTuition) params.set('max_tuition', maxTuition);
+        return params.toString();
+    }
+
+    async function loadInstitutions() {
+        const qs = buildFilterParams();
+        const url = '/api/institutions' + (qs ? '?' + qs : '');
         const items = await api('GET', url);
         if (items.length === 0) {
             instList.innerHTML = '<div class="empty-state">No institutions found. Be the first to add one!</div>';
             return;
         }
-        instList.innerHTML = items.map(t => `
+        instList.innerHTML = items.map(t => {
+            const tags = [];
+            if (t.city) tags.push(`<span class="meta-chip city-chip">&#128205; ${escapeHtml(t.city)}</span>`);
+            if (t.ownership) tags.push(`<span class="meta-chip ownership-chip">${escapeHtml(t.ownership)}</span>`);
+            if (t.tuition_min || t.tuition_max) {
+                const tRange = t.tuition_max ? `$${t.tuition_min.toLocaleString()}–$${t.tuition_max.toLocaleString()}` : `From $${t.tuition_min.toLocaleString()}`;
+                tags.push(`<span class="meta-chip tuition-chip">&#128176; ${tRange}</span>`);
+            }
+            return `
             <div class="topic-card" onclick="window.location.href='/institution/${t.id}'">
                 ${t.cover_image ? `<img src="/${escapeHtml(t.cover_image)}" class="topic-card-cover" alt="">` : ''}
                 <h3>${escapeHtml(t.title)}</h3>
                 ${t.institution_type ? `<span class="type-badge">${escapeHtml(t.institution_type)}</span>` : ''}
+                ${tags.length ? `<div style="margin:0.3rem 0;display:flex;flex-wrap:wrap;gap:0.3rem">${tags.join('')}</div>` : ''}
                 <div class="topic-meta">
                     <div>${renderStars(t.avg_rating, t.num_ratings)}</div>
                     <div>by <a href="/profile/${escapeHtml(t.created_by)}" class="username-link" onclick="event.stopPropagation()">${escapeHtml(t.created_by)}</a> &middot; ${timeAgo(t.created_at)}</div>
                 </div>
             </div>
-        `).join('');
+        `}).join('');
     }
 
-    loadInstitutions('');
+    loadInstitutions();
 
-    searchBtn.addEventListener('click', () => loadInstitutions(searchInput.value));
+    searchBtn.addEventListener('click', () => loadInstitutions());
     searchInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') loadInstitutions(searchInput.value);
+        if (e.key === 'Enter') loadInstitutions();
+    });
+    document.getElementById('filter-btn')?.addEventListener('click', () => loadInstitutions());
+    document.getElementById('filter-clear-btn')?.addEventListener('click', () => {
+        document.getElementById('filter-city').value = '';
+        document.getElementById('filter-ownership').value = '';
+        document.getElementById('filter-programs').value = '';
+        document.getElementById('filter-rating').value = '';
+        document.getElementById('filter-tuition-min').value = '';
+        document.getElementById('filter-tuition-max').value = '';
+        searchInput.value = '';
+        loadInstitutions();
     });
 
     createBtn.addEventListener('click', async () => {
@@ -204,8 +250,12 @@ function initHomePage() {
         const instType = document.getElementById('create-type').value;
         const description = document.getElementById('create-description').value.trim();
         const emailDomain = document.getElementById('create-email-domain').value.trim();
+        const city = document.getElementById('create-city')?.value.trim() || '';
+        const ownership = document.getElementById('create-ownership')?.value || '';
+        const tuitionMin = parseInt(document.getElementById('create-tuition-min')?.value) || 0;
+        const tuitionMax = parseInt(document.getElementById('create-tuition-max')?.value) || 0;
         try {
-            const inst = await api('POST', '/api/institutions', { title, institution_type: instType, description, email_domain: emailDomain });
+            const inst = await api('POST', '/api/institutions', { title, institution_type: instType, description, email_domain: emailDomain, city, ownership, tuition_min: tuitionMin, tuition_max: tuitionMax });
             createInput.value = '';
             document.getElementById('create-description').value = '';
             document.getElementById('create-email-domain').value = '';
@@ -346,9 +396,15 @@ function initInstitutionPage() {
             window.location.href = '/profile/' + user.username;
         });
         updatePointsBadge(user.contribution_points);
+        if (user.is_banned) {
+            const notice = document.createElement('div');
+            notice.className = 'banned-notice';
+            notice.textContent = 'Your account has been banned. You can browse content but cannot post or interact.';
+            document.querySelector('.container').prepend(notice);
+        }
         loadInstitution();
         loadDiscussion();
-        loadLeaderboard();
+        loadLeaderboard().then(() => loadModVerificationPanel());
     }).catch(() => {
         window.location.href = '/';
     });
@@ -387,6 +443,79 @@ function initInstitutionPage() {
             instAvg.innerHTML = renderStars(t.avg_rating, t.num_ratings) +
                 (t.avg_rating > 0 ? ` <strong>${t.avg_rating.toFixed(1)}</strong>` : '');
 
+            // Extra meta (city, ownership, tuition)
+            const extraMeta = document.getElementById('inst-extra-meta');
+            if (extraMeta) {
+                const tags = [];
+                if (t.city) tags.push(`<span class="meta-chip city-chip">&#128205; ${escapeHtml(t.city)}</span>`);
+                if (t.ownership) tags.push(`<span class="meta-chip ownership-chip">${escapeHtml(t.ownership)}</span>`);
+                if (t.tuition_min || t.tuition_max) {
+                    const tRange = t.tuition_max ? `$${t.tuition_min.toLocaleString()}–$${t.tuition_max.toLocaleString()}/yr` : `From $${t.tuition_min.toLocaleString()}/yr`;
+                    tags.push(`<span class="meta-chip tuition-chip">&#128176; ${tRange}</span>`);
+                }
+                extraMeta.innerHTML = tags.join('');
+            }
+
+            // Photos gallery
+            if (t.photos && t.photos.length > 0) {
+                const photosSection = document.getElementById('inst-photos-section');
+                const gallery = document.getElementById('inst-photos-gallery');
+                photosSection.style.display = 'block';
+                const canDelete = currentUser && (currentUser.id === t.created_by_id || currentModeratorId === currentUser.id || currentUser.is_admin);
+                gallery.innerHTML = t.photos.map(p => `
+                    <div class="gallery-item">
+                        <img src="/${escapeHtml(p.path)}" class="gallery-img" onclick="openLightbox('/${escapeHtml(p.path)}')" alt="">
+                        ${canDelete ? `<button class="gallery-delete-btn" data-photoid="${p.id}" title="Delete photo">&times;</button>` : ''}
+                    </div>
+                `).join('');
+                gallery.querySelectorAll('.gallery-delete-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        if (!confirm('Delete this photo?')) return;
+                        try {
+                            await api('DELETE', `/api/institutions/${instId}/photos/${btn.dataset.photoid}`);
+                            loadInstitution();
+                        } catch (err) { alert(err.message); }
+                    });
+                });
+            } else {
+                document.getElementById('inst-photos-section').style.display = 'none';
+            }
+
+            // Programs
+            if (t.programs) {
+                const progsSection = document.getElementById('inst-programs-section');
+                const progsList = document.getElementById('inst-programs-list');
+                progsSection.style.display = 'block';
+                progsList.innerHTML = t.programs.split(',').map(p => p.trim()).filter(Boolean)
+                    .map(p => `<span class="program-chip">${escapeHtml(p)}</span>`).join('');
+            } else {
+                document.getElementById('inst-programs-section').style.display = 'none';
+            }
+
+            // Pros / Cons
+            if (t.pros || t.cons) {
+                document.getElementById('inst-pros-cons-section').style.display = 'block';
+                document.getElementById('inst-pros-text').textContent = t.pros || '—';
+                document.getElementById('inst-cons-text').textContent = t.cons || '—';
+            } else {
+                document.getElementById('inst-pros-cons-section').style.display = 'none';
+            }
+
+            // Edit panel (creator, mod, admin)
+            const canEdit = currentUser && (currentUser.id === t.created_by_id || currentModeratorId === currentUser.id || currentUser.is_admin);
+            const editBtnContainer = document.getElementById('inst-edit-btn-container');
+            if (canEdit && editBtnContainer) {
+                editBtnContainer.style.display = 'block';
+                // Pre-fill edit fields
+                document.getElementById('edit-city').value = t.city || '';
+                document.getElementById('edit-ownership').value = t.ownership || '';
+                document.getElementById('edit-tuition-min').value = t.tuition_min || '';
+                document.getElementById('edit-tuition-max').value = t.tuition_max || '';
+                document.getElementById('edit-programs').value = t.programs || '';
+                document.getElementById('edit-pros').value = t.pros || '';
+                document.getElementById('edit-cons').value = t.cons || '';
+            }
+
             // Cover upload
             let coverSection = document.getElementById('cover-upload-section');
             const canUploadCover = currentUser && (currentUser.contribution_points >= 5 || currentModeratorId === currentUser.id || currentUser.is_admin);
@@ -417,15 +546,25 @@ function initInstitutionPage() {
 
             // Verification section
             const verifySection = document.getElementById('verify-section');
-            if (t.email_domain && currentUser) {
-                // Check if already verified
+            if (currentUser) {
                 const alreadyVerified = t.ratings.some(r => r.user_id === currentUser.id && r.is_verified);
                 if (alreadyVerified) {
                     verifySection.style.display = 'block';
                     verifySection.innerHTML = '<h3>Verification</h3><p style="color:#22C55E;font-weight:600">&#10003; You are verified for this institution</p>';
                 } else {
                     verifySection.style.display = 'block';
-                    document.getElementById('verify-email').placeholder = `your.name${t.email_domain}`;
+                    if (!t.email_domain) {
+                        // Hide email tab, show only photo tab
+                        const emailTab = document.getElementById('verify-tab-email');
+                        if (emailTab) emailTab.style.display = 'none';
+                        const emailSection = document.getElementById('verify-email-section');
+                        if (emailSection) emailSection.style.display = 'none';
+                        const photoSection = document.getElementById('verify-photo-section');
+                        if (photoSection) photoSection.style.display = 'block';
+                    } else {
+                        const emailInput = document.getElementById('verify-email');
+                        if (emailInput) emailInput.placeholder = `your.name${t.email_domain}`;
+                    }
                 }
             }
 
@@ -541,6 +680,137 @@ function initInstitutionPage() {
                 verifyError.textContent = err.message;
             }
         });
+    }
+
+    // Edit panel toggle
+    document.getElementById('inst-edit-toggle-btn')?.addEventListener('click', () => {
+        const panel = document.getElementById('inst-edit-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Save meta
+    document.getElementById('inst-edit-save-btn')?.addEventListener('click', async () => {
+        const errEl = document.getElementById('edit-meta-error');
+        const sucEl = document.getElementById('edit-meta-success');
+        errEl.textContent = ''; sucEl.textContent = '';
+        try {
+            await api('PATCH', `/api/institutions/${instId}/meta`, {
+                city: document.getElementById('edit-city').value.trim(),
+                ownership: document.getElementById('edit-ownership').value,
+                programs: document.getElementById('edit-programs').value.trim(),
+                pros: document.getElementById('edit-pros').value.trim(),
+                cons: document.getElementById('edit-cons').value.trim(),
+                tuition_min: parseInt(document.getElementById('edit-tuition-min').value) || 0,
+                tuition_max: parseInt(document.getElementById('edit-tuition-max').value) || 0,
+            });
+            sucEl.textContent = 'Saved!';
+            setTimeout(() => { sucEl.textContent = ''; }, 2000);
+            loadInstitution();
+        } catch (err) { errEl.textContent = err.message; }
+    });
+
+    // Photo upload
+    document.getElementById('photo-upload-input')?.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const statusEl = document.getElementById('photo-upload-status');
+        statusEl.textContent = 'Uploading...';
+        const formData = new FormData();
+        formData.append('photo', file);
+        try {
+            const res = await fetch(`/api/institutions/${instId}/photos`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) { statusEl.textContent = data.error || 'Upload failed'; }
+            else { statusEl.textContent = 'Photo added!'; setTimeout(() => { statusEl.textContent = ''; }, 2000); loadInstitution(); }
+        } catch { statusEl.textContent = 'Upload failed'; }
+        e.target.value = '';
+    });
+
+    // Lightbox
+    window.openLightbox = function(src) {
+        document.getElementById('lightbox-img').src = src;
+        document.getElementById('photo-lightbox').style.display = 'flex';
+    };
+
+    // Verify tab toggles
+    document.getElementById('verify-tab-email')?.addEventListener('click', () => {
+        document.getElementById('verify-tab-email').classList.add('active');
+        document.getElementById('verify-tab-photo').classList.remove('active');
+        document.getElementById('verify-email-section').style.display = 'block';
+        document.getElementById('verify-photo-section').style.display = 'none';
+    });
+    document.getElementById('verify-tab-photo')?.addEventListener('click', () => {
+        document.getElementById('verify-tab-photo').classList.add('active');
+        document.getElementById('verify-tab-email').classList.remove('active');
+        document.getElementById('verify-photo-section').style.display = 'block';
+        document.getElementById('verify-email-section').style.display = 'none';
+    });
+
+    // Photo upload handler
+    document.getElementById('verify-photo-btn')?.addEventListener('click', async () => {
+        const errorEl = document.getElementById('verify-photo-error');
+        const successEl = document.getElementById('verify-photo-success');
+        errorEl.textContent = '';
+        successEl.textContent = '';
+        const file = document.getElementById('verify-photo-input').files[0];
+        if (!file) { errorEl.textContent = 'Please select a file'; return; }
+        const formData = new FormData();
+        formData.append('proof', file);
+        try {
+            const res = await fetch(`/api/institutions/${instId}/verify-photo`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (!res.ok) { errorEl.textContent = data.error || 'Upload failed'; } else {
+                successEl.textContent = 'Submitted! Your request is awaiting moderator review.';
+                document.getElementById('verify-photo-input').value = '';
+            }
+        } catch (err) {
+            errorEl.textContent = 'Upload failed';
+        }
+    });
+
+    // ==================== Mod Verification Panel ====================
+    async function loadModVerificationPanel() {
+        const isMod = currentUser && (currentModeratorId === currentUser.id || currentUser.is_admin);
+        if (!isMod) return;
+        const panel = document.getElementById('mod-verification-panel');
+        panel.style.display = 'block';
+        const list = document.getElementById('mod-verification-list');
+        try {
+            const requests = await api('GET', `/api/institutions/${instId}/verification-requests`);
+            if (requests.length === 0) {
+                list.innerHTML = '<div class="empty-state" style="padding:1rem;font-size:0.9rem">No pending verification requests</div>';
+                return;
+            }
+            list.innerHTML = requests.map(vr => `
+                <div class="verification-request-card" data-id="${vr.id}">
+                    <div><strong><a href="/profile/${escapeHtml(vr.username)}" class="username-link">${escapeHtml(vr.username)}</a></strong></div>
+                    <img src="/${escapeHtml(vr.image_path)}" class="verification-proof-thumb" alt="proof" onclick="window.open('/${escapeHtml(vr.image_path)}', '_blank')">
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                        <button class="btn btn-accent btn-small vr-approve-btn" data-id="${vr.id}">Approve</button>
+                        <button class="btn btn-destructive btn-small vr-reject-btn" data-id="${vr.id}">Reject</button>
+                    </div>
+                </div>
+            `).join('');
+            list.querySelectorAll('.vr-approve-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    try {
+                        await api('PUT', `/api/verification-requests/${btn.dataset.id}`, { status: 'approved' });
+                        loadModVerificationPanel();
+                        loadInstitution();
+                    } catch (err) { alert(err.message); }
+                });
+            });
+            list.querySelectorAll('.vr-reject-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    try {
+                        await api('PUT', `/api/verification-requests/${btn.dataset.id}`, { status: 'rejected' });
+                        loadModVerificationPanel();
+                    } catch (err) { alert(err.message); }
+                });
+            });
+        } catch {
+            list.innerHTML = '<div class="empty-state" style="padding:1rem;font-size:0.9rem">Failed to load requests</div>';
+        }
     }
 
     // ==================== Discussion ====================
@@ -736,6 +1006,12 @@ function initProfilePage() {
             window.location.href = '/profile/' + user.username;
         });
         updatePointsBadge(user.contribution_points);
+        if (user.is_banned) {
+            const notice = document.createElement('div');
+            notice.className = 'banned-notice';
+            notice.textContent = 'Your account has been banned. You can browse content but cannot post or interact.';
+            document.querySelector('.container').prepend(notice);
+        }
         loadProfile();
     }).catch(() => {
         window.location.href = '/';
@@ -804,10 +1080,8 @@ function initProfilePage() {
             // Education history
             loadEducation(p.education || [], isOwnProfile);
 
-            // Admin panel
-            if (currentUser && currentUser.is_admin) {
-                initAdminPanel();
-            }
+            // Admin link
+            initAdminPanel();
 
         } catch {
             profileUsername.textContent = 'User not found';
@@ -934,45 +1208,207 @@ function initProfilePage() {
     }
 }
 
-// ==================== ADMIN PANEL ====================
+// ==================== ADMIN PANEL (profile page link) ====================
 async function initAdminPanel() {
-    const panel = document.getElementById('admin-panel');
-    if (!panel) return;
-    panel.style.display = 'block';
+    const link = document.getElementById('admin-link-section');
+    if (link && currentUser && currentUser.is_admin) link.style.display = 'block';
+}
 
-    try {
-        const users = await api('GET', '/api/admin/users');
-        const list = document.getElementById('admin-users-list');
-        list.innerHTML = users.map(u => `
-            <div class="admin-user-row">
-                <div class="admin-user-info">
-                    <a href="/profile/${escapeHtml(u.username)}" class="user-name username-link">${escapeHtml(u.username)}</a>
-                    <span style="color:#888;font-size:0.85rem">${u.rating_count} ratings</span>
-                </div>
-                <div class="admin-score-control">
-                    <span style="font-size:0.85rem;color:#888">pts:</span>
-                    <input type="number" value="${u.contribution_points}" data-userid="${u.id}">
-                    <button class="btn btn-accent btn-small admin-set-pts-btn" data-userid="${u.id}">Set</button>
-                </div>
-            </div>
-        `).join('');
+// ==================== ADMIN PAGE ====================
+function initAdminPage() {
+    if (!document.querySelector('.admin-page-tabs')) return;
 
-        list.querySelectorAll('.admin-set-pts-btn').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const input = btn.parentElement.querySelector('input[type="number"]');
-                try {
-                    await api('PUT', `/api/admin/users/${btn.dataset.userid}/points`, {
-                        points: parseInt(input.value)
-                    });
-                    btn.textContent = 'Done!';
-                    setTimeout(() => { btn.textContent = 'Set'; }, 1000);
-                } catch (err) {
-                    alert(err.message);
-                }
-            });
+    const usernameEl = document.getElementById('username');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    api('GET', '/api/me').then(user => {
+        currentUser = user;
+        if (!user.is_admin) { window.location.href = '/home'; return; }
+        if (usernameEl) {
+            usernameEl.textContent = user.username;
+            usernameEl.style.cursor = 'pointer';
+            usernameEl.addEventListener('click', () => { window.location.href = '/profile/' + user.username; });
+        }
+        updatePointsBadge(user.contribution_points);
+        loadAdminUsers();
+    }).catch(() => window.location.href = '/');
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+            await api('POST', '/api/logout');
+            window.location.href = '/';
         });
-    } catch (err) {
-        console.error('Failed to load admin panel:', err);
+    }
+
+    document.querySelectorAll('.admin-page-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.admin-page-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            document.querySelectorAll('.admin-tab-panel').forEach(p => p.style.display = 'none');
+            document.getElementById('admin-tab-' + tab.dataset.tab).style.display = 'block';
+            if (tab.dataset.tab === 'verifications') loadAdminVerifications();
+            if (tab.dataset.tab === 'bans') loadAdminBans();
+        });
+    });
+
+    document.getElementById('close-activity-modal')?.addEventListener('click', () => {
+        document.getElementById('activity-modal').style.display = 'none';
+    });
+
+    async function loadAdminUsers() {
+        const list = document.getElementById('admin-users-list');
+        try {
+            const users = await api('GET', '/api/admin/users');
+            if (!users || users.length === 0) {
+                list.innerHTML = '<div class="empty-state" style="padding:1rem">No users found</div>';
+                return;
+            }
+            list.innerHTML = users.map(u => `
+                <div class="admin-user-row" id="admin-user-row-${u.id}">
+                    <div class="admin-user-info">
+                        <a href="/profile/${escapeHtml(u.username)}" class="user-name username-link">${escapeHtml(u.username)}</a>
+                        <span style="color:#888;font-size:0.85rem">${u.rating_count} ratings</span>
+                        ${u.is_banned ? '<span style="color:#EF4444;font-size:0.8rem;font-weight:700">BANNED</span>' : ''}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+                        <div class="admin-score-control">
+                            <span style="font-size:0.85rem;color:#888">pts:</span>
+                            <input type="number" value="${u.contribution_points}" data-userid="${u.id}">
+                            <button class="btn btn-accent btn-small admin-set-pts-btn" data-userid="${u.id}">Set</button>
+                        </div>
+                        <button class="btn btn-small" style="background:#6366F1;color:#fff" data-userid="${u.id}" data-username="${escapeHtml(u.username)}" onclick="showActivity(${u.id}, '${escapeHtml(u.username)}')">Activity</button>
+                        ${u.is_banned
+                            ? `<button class="btn btn-small" style="background:#22C55E;color:#fff" data-userid="${u.id}" onclick="adminUnban(${u.id}, this)">Unban</button>`
+                            : `<button class="btn btn-small btn-destructive" data-userid="${u.id}" onclick="adminBan(${u.id}, '${escapeHtml(u.username)}', this)">Ban</button>`
+                        }
+                    </div>
+                </div>
+            `).join('');
+
+            list.querySelectorAll('.admin-set-pts-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const input = btn.parentElement.querySelector('input[type="number"]');
+                    try {
+                        await api('PUT', `/api/admin/users/${btn.dataset.userid}/points`, { points: parseInt(input.value) });
+                        btn.textContent = 'Done!';
+                        setTimeout(() => { btn.textContent = 'Set'; }, 1000);
+                    } catch (err) { alert(err.message); }
+                });
+            });
+        } catch (err) {
+            list.innerHTML = '<div class="empty-state" style="padding:1rem">Failed to load users</div>';
+        }
+    }
+
+    window.showActivity = async function(userId, username) {
+        document.getElementById('activity-modal-title').textContent = username + ' — Activity';
+        document.getElementById('activity-modal').style.display = 'flex';
+        const content = document.getElementById('activity-modal-content');
+        content.innerHTML = '<div style="color:#888;text-align:center;padding:1rem">Loading...</div>';
+        try {
+            const a = await api('GET', `/api/admin/users/${userId}/activity`);
+            let html = '';
+            html += '<div class="activity-section"><h4>Ratings (' + a.ratings.length + ')</h4>';
+            if (a.ratings.length === 0) html += '<div class="activity-item" style="color:#aaa">None</div>';
+            else a.ratings.forEach(r => {
+                html += `<div class="activity-item"><strong>${escapeHtml(r.title)}</strong> — ${r.score}★ ${r.comment ? '· ' + escapeHtml(r.comment.substring(0, 80)) : ''} <span style="color:#aaa;font-size:0.8rem">${timeAgo(r.created_at)}</span></div>`;
+            });
+            html += '</div>';
+            html += '<div class="activity-section"><h4>Comments (' + a.comments.length + ')</h4>';
+            if (a.comments.length === 0) html += '<div class="activity-item" style="color:#aaa">None</div>';
+            else a.comments.forEach(c => {
+                html += `<div class="activity-item"><strong>${escapeHtml(c.title)}</strong> — ${escapeHtml(c.content.substring(0, 100))} <span style="color:#aaa;font-size:0.8rem">${timeAgo(c.created_at)}</span></div>`;
+            });
+            html += '</div>';
+            html += '<div class="activity-section"><h4>Events (' + a.events.length + ')</h4>';
+            if (a.events.length === 0) html += '<div class="activity-item" style="color:#aaa">None</div>';
+            else a.events.forEach(ev => {
+                html += `<div class="activity-item">${escapeHtml(ev.event_type)} <strong style="color:${ev.points >= 0 ? '#22C55E' : '#EF4444'}">${ev.points > 0 ? '+' : ''}${ev.points} pts</strong> <span style="color:#aaa;font-size:0.8rem">${timeAgo(ev.created_at)}</span></div>`;
+            });
+            html += '</div>';
+            content.innerHTML = html;
+        } catch {
+            content.innerHTML = '<div style="color:#EF4444;text-align:center;padding:1rem">Failed to load activity</div>';
+        }
+    };
+
+    window.adminBan = async function(userId, username, btn) {
+        const reason = prompt(`Ban reason for ${username}?`, '');
+        if (reason === null) return;
+        try {
+            await api('POST', `/api/admin/users/${userId}/ban`, { reason });
+            loadAdminUsers();
+        } catch (err) { alert(err.message); }
+    };
+
+    window.adminUnban = async function(userId, btn) {
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/ban`, { method: 'DELETE' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            loadAdminUsers();
+        } catch (err) { alert(err.message); }
+    };
+
+    async function loadAdminVerifications() {
+        const list = document.getElementById('admin-verifications-list');
+        try {
+            const reqs = await api('GET', '/api/admin/verification-requests');
+            if (reqs.length === 0) {
+                list.innerHTML = '<div class="empty-state" style="padding:1rem">No pending verification requests</div>';
+                return;
+            }
+            list.innerHTML = reqs.map(vr => `
+                <div class="verification-request-card">
+                    <div><strong><a href="/profile/${escapeHtml(vr.username)}" class="username-link">${escapeHtml(vr.username)}</a></strong> — <a href="/institution/${vr.institution_id}" class="username-link">${escapeHtml(vr.institution_name)}</a></div>
+                    <img src="/${escapeHtml(vr.image_path)}" class="verification-proof-thumb" alt="proof" onclick="window.open('/${escapeHtml(vr.image_path)}', '_blank')">
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                        <button class="btn btn-accent btn-small adm-vr-approve" data-id="${vr.id}">Approve</button>
+                        <button class="btn btn-destructive btn-small adm-vr-reject" data-id="${vr.id}">Reject</button>
+                    </div>
+                </div>
+            `).join('');
+            list.querySelectorAll('.adm-vr-approve').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    try {
+                        await api('PUT', `/api/verification-requests/${btn.dataset.id}`, { status: 'approved' });
+                        loadAdminVerifications();
+                    } catch (err) { alert(err.message); }
+                });
+            });
+            list.querySelectorAll('.adm-vr-reject').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    try {
+                        await api('PUT', `/api/verification-requests/${btn.dataset.id}`, { status: 'rejected' });
+                        loadAdminVerifications();
+                    } catch (err) { alert(err.message); }
+                });
+            });
+        } catch {
+            list.innerHTML = '<div class="empty-state" style="padding:1rem">Failed to load</div>';
+        }
+    }
+
+    async function loadAdminBans() {
+        const list = document.getElementById('admin-bans-list');
+        try {
+            const bans = await api('GET', '/api/admin/bans');
+            if (bans.length === 0) {
+                list.innerHTML = '<div class="empty-state" style="padding:1rem">No banned users</div>';
+                return;
+            }
+            list.innerHTML = bans.map(b => `
+                <div class="admin-user-row">
+                    <div class="admin-user-info">
+                        <a href="/profile/${escapeHtml(b.username)}" class="user-name username-link">${escapeHtml(b.username)}</a>
+                        <span style="color:#888;font-size:0.85rem">by ${escapeHtml(b.banned_by_name)} &middot; ${escapeHtml(b.reason || 'No reason')} &middot; ${timeAgo(b.created_at)}</span>
+                    </div>
+                    <button class="btn btn-small" style="background:#22C55E;color:#fff" onclick="adminUnban(${b.user_id}, this)">Unban</button>
+                </div>
+            `).join('');
+        } catch {
+            list.innerHTML = '<div class="empty-state" style="padding:1rem">Failed to load</div>';
+        }
     }
 }
 
@@ -982,4 +1418,5 @@ document.addEventListener('DOMContentLoaded', () => {
     initHomePage();
     initInstitutionPage();
     initProfilePage();
+    initAdminPage();
 });

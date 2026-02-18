@@ -1,0 +1,6 @@
+*.db
+uploads/
+*.db-wal
+*.db-shm
+rateed
+.env

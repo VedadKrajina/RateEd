@@ -27,17 +27,97 @@
                     <div id="inst-description" class="inst-description"></div>
                     <div id="inst-meta" class="inst-meta"></div>
                     <div id="inst-avg" class="avg-rating" style="margin-top:0.5rem"></div>
+                    <div id="inst-extra-meta" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem"></div>
+                    <div id="inst-edit-btn-container" style="margin-top:0.8rem;display:none">
+                        <button class="btn btn-small" id="inst-edit-toggle-btn" style="background:#6366F1;color:#fff">Edit Details</button>
+                    </div>
+                    <div id="inst-edit-panel" style="display:none;margin-top:1rem;border-top:1px solid #f0f0f0;padding-top:1rem">
+                        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem">
+                            <input type="text" id="edit-city" placeholder="City" style="flex:1;min-width:120px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
+                            <select id="edit-ownership" style="padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem;background:#fff">
+                                <option value="">Ownership...</option>
+                                <option value="public">Public</option>
+                                <option value="private">Private</option>
+                            </select>
+                            <input type="number" id="edit-tuition-min" placeholder="Tuition min ($)" style="width:130px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
+                            <input type="number" id="edit-tuition-max" placeholder="Tuition max ($)" style="width:130px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
+                        </div>
+                        <input type="text" id="edit-programs" placeholder="Programs (comma-separated: Computer Science, Medicine, Law...)" style="width:100%;margin-bottom:0.5rem;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
+                        <textarea id="edit-pros" placeholder="Pros (what's great about this institution)..." style="width:100%;margin-bottom:0.5rem;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem;min-height:60px;resize:vertical;font-family:inherit"></textarea>
+                        <textarea id="edit-cons" placeholder="Cons (what could be improved)..." style="width:100%;margin-bottom:0.5rem;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem;min-height:60px;resize:vertical;font-family:inherit"></textarea>
+                        <div style="display:flex;gap:0.5rem;align-items:center">
+                            <button class="btn btn-accent btn-small" id="inst-edit-save-btn">Save</button>
+                            <p class="error-msg" id="edit-meta-error" style="margin:0"></p>
+                            <p class="success-msg" id="edit-meta-success" style="margin:0"></p>
+                        </div>
+                        <div style="margin-top:0.8rem;border-top:1px solid #f0f0f0;padding-top:0.8rem">
+                            <label class="btn btn-small" style="background:#6366F1;color:#fff;cursor:pointer">
+                                Add Photo <input type="file" id="photo-upload-input" accept="image/*" style="display:none">
+                            </label>
+                            <div id="photo-upload-status" style="margin-top:0.4rem;font-size:0.85rem"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="inst-photos-section" style="display:none;margin-bottom:1.5rem">
+                    <div id="inst-photos-gallery" class="photo-gallery"></div>
+                </div>
+
+                <div id="inst-programs-section" style="display:none" class="rate-section">
+                    <h3>Programs Offered</h3>
+                    <div id="inst-programs-list"></div>
+                </div>
+
+                <div id="inst-pros-cons-section" style="display:none" class="rate-section">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+                        <div>
+                            <h4 style="color:#22C55E;margin-bottom:0.5rem">&#10003; Pros</h4>
+                            <div id="inst-pros-text" style="color:#444;font-size:0.9rem;line-height:1.6;white-space:pre-line"></div>
+                        </div>
+                        <div>
+                            <h4 style="color:#EF4444;margin-bottom:0.5rem">&#10007; Cons</h4>
+                            <div id="inst-cons-text" style="color:#444;font-size:0.9rem;line-height:1.6;white-space:pre-line"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Photo lightbox -->
+                <div id="photo-lightbox" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:2000;justify-content:center;align-items:center">
+                    <button onclick="document.getElementById('photo-lightbox').style.display='none'" style="position:absolute;top:1rem;right:1.5rem;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer">&times;</button>
+                    <img id="lightbox-img" src="" style="max-width:90%;max-height:90vh;border-radius:8px;object-fit:contain">
                 </div>
 
                 <div id="verify-section" class="rate-section" style="display:none">
                     <h3>Verify Your Affiliation</h3>
-                    <p style="color:#666;margin-bottom:0.8rem;font-size:0.9rem">Enter your institutional email to get a verified badge on your reviews.</p>
-                    <div style="display:flex;gap:0.5rem;align-items:center">
-                        <input type="email" id="verify-email" placeholder="your.name@institution.edu" style="flex:1;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
-                        <button class="btn btn-accent" id="verify-btn">Verify</button>
+                    <p style="color:#666;margin-bottom:0.8rem;font-size:0.9rem">Get a verified badge by confirming your connection to this institution.</p>
+                    <div class="verify-tabs">
+                        <button class="verify-tab active" id="verify-tab-email">Email Verification</button>
+                        <button class="verify-tab" id="verify-tab-photo">Upload Photo Proof</button>
                     </div>
-                    <p class="error-msg" id="verify-error"></p>
-                    <p class="success-msg" id="verify-success"></p>
+                    <div id="verify-email-section">
+                        <p style="color:#888;font-size:0.85rem;margin-bottom:0.5rem">Enter your institutional email to verify instantly.</p>
+                        <div style="display:flex;gap:0.5rem;align-items:center">
+                            <input type="email" id="verify-email" placeholder="your.name@institution.edu" style="flex:1;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                            <button class="btn btn-accent" id="verify-btn">Verify</button>
+                        </div>
+                        <p class="error-msg" id="verify-error"></p>
+                        <p class="success-msg" id="verify-success"></p>
+                    </div>
+                    <div id="verify-photo-section" style="display:none">
+                        <p style="color:#888;font-size:0.85rem;margin-bottom:0.5rem">Upload a report card or transcript. A moderator will review it.</p>
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                            <input type="file" id="verify-photo-input" accept="image/*">
+                            <button class="btn btn-accent" id="verify-photo-btn">Submit</button>
+                        </div>
+                        <p class="error-msg" id="verify-photo-error"></p>
+                        <p class="success-msg" id="verify-photo-success"></p>
+                    </div>
+                </div>
+
+                <!-- Moderator verification review panel -->
+                <div id="mod-verification-panel" class="rate-section" style="display:none">
+                    <h3>Pending Verification Requests</h3>
+                    <div id="mod-verification-list"></div>
                 </div>
 
                 <div class="rate-section">

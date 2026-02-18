@@ -10,4 +10,5 @@ var (
 	}
 	institutionCreateThreshold int = 5
 	adminUsername               string = "vk15"
+	uploadsDir                  string = "uploads"
 )

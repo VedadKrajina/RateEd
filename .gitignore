@@ -1,0 +1,13 @@
+colors/
+financials/
+materials for research paper/
+*.txt
+*.md
+*.png
+*.ods
+*.db
+*.db-wal
+*.db-shm
+project/uploads/
+project/rateed
+.claude/

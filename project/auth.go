@@ -111,3 +111,15 @@ func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 		next(w, r)
 	}
 }
+
+func isModeratorOrAdmin(r *http.Request, instID int64) bool {
+	sd, ok := getSessionFromRequest(r)
+	if !ok {
+		return false
+	}
+	if sd.IsAdmin {
+		return true
+	}
+	modID, _ := getInstitutionModerator(instID)
+	return modID == sd.UserID
+}

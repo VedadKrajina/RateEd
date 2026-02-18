@@ -24,6 +24,30 @@
                     <button class="btn btn-accent" id="search-btn">Search</button>
                 </div>
 
+                <div class="filter-panel">
+                    <div class="filter-row">
+                        <input type="text" id="filter-city" placeholder="City..." class="filter-input">
+                        <select id="filter-ownership" class="filter-input">
+                            <option value="">Public &amp; Private</option>
+                            <option value="public">Public</option>
+                            <option value="private">Private</option>
+                        </select>
+                        <input type="text" id="filter-programs" placeholder="Field (IT, Medicine, Law...)" class="filter-input">
+                    </div>
+                    <div class="filter-row">
+                        <select id="filter-rating" class="filter-input">
+                            <option value="">Any Rating</option>
+                            <option value="3">3+ Stars</option>
+                            <option value="4">4+ Stars</option>
+                            <option value="5">5 Stars</option>
+                        </select>
+                        <input type="number" id="filter-tuition-min" placeholder="Tuition min ($)" class="filter-input" min="0">
+                        <input type="number" id="filter-tuition-max" placeholder="Tuition max ($)" class="filter-input" min="0">
+                        <button class="btn btn-accent btn-small" id="filter-btn">Filter</button>
+                        <button class="btn btn-small" id="filter-clear-btn" style="background:#E5E7EB;color:#555">Clear</button>
+                    </div>
+                </div>
+
                 <div class="create-section" id="create-section">
                     <h3>Add a New Institution</h3>
                     <div class="create-form">
@@ -38,6 +62,16 @@
                         <button class="btn btn-accent" id="create-btn">Add</button>
                     </div>
                     <input type="text" id="create-description" placeholder="Brief description (optional)..." style="width:100%;margin-top:0.5rem;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                    <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+                        <input type="text" id="create-city" placeholder="City (optional)" style="flex:1;min-width:120px;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                        <select id="create-ownership" style="padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;background:#fff">
+                            <option value="">Ownership...</option>
+                            <option value="public">Public</option>
+                            <option value="private">Private</option>
+                        </select>
+                        <input type="number" id="create-tuition-min" placeholder="Tuition min ($)" style="width:130px;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;" min="0">
+                        <input type="number" id="create-tuition-max" placeholder="Tuition max ($)" style="width:130px;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;" min="0">
+                    </div>
                     <input type="text" id="create-email-domain" placeholder="Email domain for verification (e.g. @mit.edu)" style="width:100%;margin-top:0.5rem;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
                     <p class="error-msg" id="create-error"></p>
                 </div>

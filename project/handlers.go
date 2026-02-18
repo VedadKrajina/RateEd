@@ -98,6 +98,7 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 
 	pic, _ := getProfilePicture(sd.UserID)
 	points, _ := getContributionPoints(sd.UserID)
+	banned, _ := isUserBanned(sd.UserID)
 
 	jsonResponse(w, 200, map[string]interface{}{
 		"id":                  sd.UserID,
@@ -105,14 +106,27 @@ func handleMe(w http.ResponseWriter, r *http.Request) {
 		"is_admin":            sd.IsAdmin,
 		"contribution_points": points,
 		"profile_picture":     pic,
+		"is_banned":           banned,
 	})
 }
 
 // ==================== Institution Handlers ====================
 
 func handleListInstitutions(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	items, err := searchInstitutions(query)
+	q := r.URL.Query()
+	minRating, _ := strconv.ParseFloat(q.Get("min_rating"), 64)
+	minTuition, _ := strconv.Atoi(q.Get("min_tuition"))
+	maxTuition, _ := strconv.Atoi(q.Get("max_tuition"))
+	filter := InstitutionFilter{
+		Query:      q.Get("q"),
+		City:       q.Get("city"),
+		Ownership:  q.Get("ownership"),
+		Programs:   q.Get("programs"),
+		MinRating:  minRating,
+		MinTuition: minTuition,
+		MaxTuition: maxTuition,
+	}
+	items, err := searchInstitutions(filter)
 	if err != nil {
 		jsonResponse(w, 500, map[string]string{"error": "server error"})
 		return
@@ -126,6 +140,11 @@ func handleListInstitutions(w http.ResponseWriter, r *http.Request) {
 func handleCreateInstitution(w http.ResponseWriter, r *http.Request) {
 	userID, _ := getUserIDFromRequest(r)
 
+	if banned, _ := isUserBanned(userID); banned {
+		jsonResponse(w, 403, map[string]string{"error": "your account has been banned"})
+		return
+	}
+
 	// Check contribution points threshold
 	points, _ := getContributionPoints(userID)
 	if points < institutionCreateThreshold {
@@ -138,6 +157,10 @@ func handleCreateInstitution(w http.ResponseWriter, r *http.Request) {
 		InstitutionType string `json:"institution_type"`
 		Description     string `json:"description"`
 		EmailDomain     string `json:"email_domain"`
+		City            string `json:"city"`
+		Ownership       string `json:"ownership"`
+		TuitionMin      int    `json:"tuition_min"`
+		TuitionMax      int    `json:"tuition_max"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
@@ -150,7 +173,9 @@ func handleCreateInstitution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := createInstitution(req.Title, strings.TrimSpace(req.InstitutionType), strings.TrimSpace(req.Description), strings.TrimSpace(req.EmailDomain), userID)
+	id, err := createInstitution(req.Title, strings.TrimSpace(req.InstitutionType), strings.TrimSpace(req.Description),
+		strings.TrimSpace(req.EmailDomain), strings.TrimSpace(req.City), strings.TrimSpace(req.Ownership),
+		req.TuitionMin, req.TuitionMax, userID)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			jsonResponse(w, 409, map[string]string{"error": "institution already exists"})
@@ -190,6 +215,11 @@ func handleRateInstitution(w http.ResponseWriter, r *http.Request) {
 	instID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	if banned, _ := isUserBanned(userID); banned {
+		jsonResponse(w, 403, map[string]string{"error": "your account has been banned"})
 		return
 	}
 
@@ -302,6 +332,11 @@ func handlePostComment(w http.ResponseWriter, r *http.Request) {
 	instID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	if banned, _ := isUserBanned(userID); banned {
+		jsonResponse(w, 403, map[string]string{"error": "your account has been banned"})
 		return
 	}
 
@@ -419,7 +454,7 @@ func handleUploadProfilePicture(w http.ResponseWriter, r *http.Request) {
 		ext = ".webp"
 	}
 	filename := hex.EncodeToString(randBytes) + ext
-	savePath := filepath.Join("uploads", "profiles", filename)
+	savePath := filepath.Join(uploadsDir, "profiles", filename)
 
 	out, err := os.Create(savePath)
 	if err != nil {
@@ -517,7 +552,7 @@ func handleUploadInstitutionCover(w http.ResponseWriter, r *http.Request) {
 		ext = ".webp"
 	}
 	filename := hex.EncodeToString(randBytes) + ext
-	savePath := filepath.Join("uploads", "topics", filename)
+	savePath := filepath.Join(uploadsDir, "topics", filename)
 
 	out, err := os.Create(savePath)
 	if err != nil {
@@ -712,6 +747,378 @@ func handleModDeleteComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, 200, map[string]string{"message": "comment deleted by moderator"})
+}
+
+// ==================== Institution Meta & Photos ====================
+
+func handleUpdateInstitutionMeta(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	// Allow creator, moderator, or admin
+	sd, _ := getSessionFromRequest(r)
+	creatorID, _ := getInstitutionCreator(instID)
+	modID, _ := getInstitutionModerator(instID)
+	if userID != creatorID && userID != modID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	var req struct {
+		City       string `json:"city"`
+		Ownership  string `json:"ownership"`
+		Programs   string `json:"programs"`
+		Pros       string `json:"pros"`
+		Cons       string `json:"cons"`
+		TuitionMin int    `json:"tuition_min"`
+		TuitionMax int    `json:"tuition_max"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if err := updateInstitutionMeta(instID, strings.TrimSpace(req.City), strings.TrimSpace(req.Ownership),
+		strings.TrimSpace(req.Programs), strings.TrimSpace(req.Pros), strings.TrimSpace(req.Cons),
+		req.TuitionMin, req.TuitionMax); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, map[string]string{"message": "updated"})
+}
+
+func handleUploadInstitutionPhoto(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	// Allow creator, moderator, or admin
+	sd, _ := getSessionFromRequest(r)
+	creatorID, _ := getInstitutionCreator(instID)
+	modID, _ := getInstitutionModerator(instID)
+	if userID != creatorID && userID != modID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "file too large (max 5MB)"})
+		return
+	}
+	file, _, err := r.FormFile("photo")
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "no file provided"})
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	if !allowedImageTypes[contentType] {
+		jsonResponse(w, 400, map[string]string{"error": "invalid image type"})
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	ext := ".jpg"
+	switch contentType {
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	filename := hex.EncodeToString(randBytes) + ext
+	savePath := filepath.Join(uploadsDir, "institution-photos", filename)
+
+	out, err := os.Create(savePath)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	defer out.Close()
+	out.Write(buf[:n])
+	io.Copy(out, file)
+
+	id, err := addInstitutionPhoto(instID, userID, savePath)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 201, map[string]interface{}{"id": id, "path": "/" + savePath})
+}
+
+func handleDeleteInstitutionPhoto(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	instID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+	photoID, err := strconv.ParseInt(vars["photoId"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid photo id"})
+		return
+	}
+
+	sd, _ := getSessionFromRequest(r)
+	creatorID, _ := getInstitutionCreator(instID)
+	modID, _ := getInstitutionModerator(instID)
+	if userID != creatorID && userID != modID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	if err := deleteInstitutionPhoto(photoID); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, map[string]string{"message": "photo deleted"})
+}
+
+// ==================== Verification Photo Handlers ====================
+
+func handleUploadVerificationPhoto(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	already, err := isUserVerifiedForInstitution(userID, instID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if already {
+		jsonResponse(w, 400, map[string]string{"error": "you are already verified for this institution"})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "file too large (max 5MB)"})
+		return
+	}
+
+	file, _, err := r.FormFile("proof")
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "no file provided"})
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	if !allowedImageTypes[contentType] {
+		jsonResponse(w, 400, map[string]string{"error": "invalid image type"})
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	ext := ".jpg"
+	switch contentType {
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	filename := hex.EncodeToString(randBytes) + ext
+	savePath := filepath.Join(uploadsDir, "verifications", filename)
+
+	out, err := os.Create(savePath)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	defer out.Close()
+	out.Write(buf[:n])
+	io.Copy(out, file)
+
+	id, err := createVerificationRequest(instID, userID, savePath)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+
+	jsonResponse(w, 201, map[string]interface{}{"id": id, "message": "verification request submitted, awaiting moderator review"})
+}
+
+func handleGetVerificationRequests(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	if !isModeratorOrAdmin(r, instID) {
+		jsonResponse(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	requests, err := getVerificationRequestsByInstitution(instID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, requests)
+}
+
+func handleReviewVerificationRequest(w http.ResponseWriter, r *http.Request) {
+	sd, ok := getSessionFromRequest(r)
+	if !ok {
+		jsonResponse(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+
+	idStr := mux.Vars(r)["id"]
+	requestID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request id"})
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.Status != "approved" && req.Status != "rejected" {
+		jsonResponse(w, 400, map[string]string{"error": "status must be approved or rejected"})
+		return
+	}
+
+	vr, err := getVerificationRequest(requestID)
+	if err != nil {
+		jsonResponse(w, 404, map[string]string{"error": "request not found"})
+		return
+	}
+
+	if !isModeratorOrAdmin(r, vr.InstitutionID) {
+		jsonResponse(w, 403, map[string]string{"error": "forbidden"})
+		return
+	}
+
+	if err := reviewVerificationRequest(requestID, req.Status, sd.UserID); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "request " + req.Status})
+}
+
+// ==================== Admin Ban Handlers ====================
+
+func handleBanUser(w http.ResponseWriter, r *http.Request) {
+	sd, _ := getSessionFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	targetUserID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	if targetUserID == sd.UserID {
+		jsonResponse(w, 400, map[string]string{"error": "cannot ban yourself"})
+		return
+	}
+
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if err := banUser(targetUserID, sd.UserID, req.Reason); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "user banned"})
+}
+
+func handleUnbanUser(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	targetUserID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	if err := unbanUser(targetUserID); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "user unbanned"})
+}
+
+func handleGetBannedUsers(w http.ResponseWriter, r *http.Request) {
+	bans, err := getAllBannedUsers()
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, bans)
+}
+
+func handleGetAllPendingVerifications(w http.ResponseWriter, r *http.Request) {
+	requests, err := getAllPendingVerificationRequests()
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, requests)
+}
+
+func handleAdminGetUserActivity(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	userID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	activity, err := getUserActivity(userID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, activity)
 }
 
 // ==================== Mute Handler ====================
