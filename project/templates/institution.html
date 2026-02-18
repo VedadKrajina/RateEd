@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RateEd - Institution</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1><a href="/home" style="text-decoration:none;color:inherit">Rate<span>Ed</span></a></h1>
+        <div class="header-right">
+            <span class="points-badge" id="points-badge" title="Contribution Points"></span>
+            <span id="username"></span>
+            <button class="btn btn-outline btn-small" id="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <a href="/home" class="back-link">&larr; Back to institutions</a>
+
+        <div class="page-layout">
+            <div class="main-content">
+                <div class="institution-header">
+                    <h2 id="inst-title">Loading...</h2>
+                    <div id="inst-type-badge"></div>
+                    <div id="inst-description" class="inst-description"></div>
+                    <div id="inst-meta" class="inst-meta"></div>
+                    <div id="inst-avg" class="avg-rating" style="margin-top:0.5rem"></div>
+                </div>
+
+                <div id="verify-section" class="rate-section" style="display:none">
+                    <h3>Verify Your Affiliation</h3>
+                    <p style="color:#666;margin-bottom:0.8rem;font-size:0.9rem">Enter your institutional email to get a verified badge on your reviews.</p>
+                    <div style="display:flex;gap:0.5rem;align-items:center">
+                        <input type="email" id="verify-email" placeholder="your.name@institution.edu" style="flex:1;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                        <button class="btn btn-accent" id="verify-btn">Verify</button>
+                    </div>
+                    <p class="error-msg" id="verify-error"></p>
+                    <p class="success-msg" id="verify-success"></p>
+                </div>
+
+                <div class="rate-section">
+                    <h3>Rate This Institution</h3>
+                    <form id="rate-form">
+                        <div class="category-ratings">
+                            <div class="category-row">
+                                <span class="category-label">Academic Rigor &amp; Quality</span>
+                                <div class="star-widget" data-category="academic">
+                                    <input type="radio" name="star-academic" id="star-academic-5" value="5"><label for="star-academic-5">&#9733;</label>
+                                    <input type="radio" name="star-academic" id="star-academic-4" value="4"><label for="star-academic-4">&#9733;</label>
+                                    <input type="radio" name="star-academic" id="star-academic-3" value="3"><label for="star-academic-3">&#9733;</label>
+                                    <input type="radio" name="star-academic" id="star-academic-2" value="2"><label for="star-academic-2">&#9733;</label>
+                                    <input type="radio" name="star-academic" id="star-academic-1" value="1"><label for="star-academic-1">&#9733;</label>
+                                </div>
+                            </div>
+                            <div class="category-row">
+                                <span class="category-label">Infrastructure &amp; Resources</span>
+                                <div class="star-widget" data-category="infrastructure">
+                                    <input type="radio" name="star-infrastructure" id="star-infrastructure-5" value="5"><label for="star-infrastructure-5">&#9733;</label>
+                                    <input type="radio" name="star-infrastructure" id="star-infrastructure-4" value="4"><label for="star-infrastructure-4">&#9733;</label>
+                                    <input type="radio" name="star-infrastructure" id="star-infrastructure-3" value="3"><label for="star-infrastructure-3">&#9733;</label>
+                                    <input type="radio" name="star-infrastructure" id="star-infrastructure-2" value="2"><label for="star-infrastructure-2">&#9733;</label>
+                                    <input type="radio" name="star-infrastructure" id="star-infrastructure-1" value="1"><label for="star-infrastructure-1">&#9733;</label>
+                                </div>
+                            </div>
+                            <div class="category-row">
+                                <span class="category-label">Student Life &amp; Environment</span>
+                                <div class="star-widget" data-category="student_life">
+                                    <input type="radio" name="star-student_life" id="star-student_life-5" value="5"><label for="star-student_life-5">&#9733;</label>
+                                    <input type="radio" name="star-student_life" id="star-student_life-4" value="4"><label for="star-student_life-4">&#9733;</label>
+                                    <input type="radio" name="star-student_life" id="star-student_life-3" value="3"><label for="star-student_life-3">&#9733;</label>
+                                    <input type="radio" name="star-student_life" id="star-student_life-2" value="2"><label for="star-student_life-2">&#9733;</label>
+                                    <input type="radio" name="star-student_life" id="star-student_life-1" value="1"><label for="star-student_life-1">&#9733;</label>
+                                </div>
+                            </div>
+                            <div class="category-row">
+                                <span class="category-label">Career &amp; Future Support</span>
+                                <div class="star-widget" data-category="career">
+                                    <input type="radio" name="star-career" id="star-career-5" value="5"><label for="star-career-5">&#9733;</label>
+                                    <input type="radio" name="star-career" id="star-career-4" value="4"><label for="star-career-4">&#9733;</label>
+                                    <input type="radio" name="star-career" id="star-career-3" value="3"><label for="star-career-3">&#9733;</label>
+                                    <input type="radio" name="star-career" id="star-career-2" value="2"><label for="star-career-2">&#9733;</label>
+                                    <input type="radio" name="star-career" id="star-career-1" value="1"><label for="star-career-1">&#9733;</label>
+                                </div>
+                            </div>
+                            <div class="category-row">
+                                <span class="category-label">Academic Guidance &amp; Staff</span>
+                                <div class="star-widget" data-category="guidance">
+                                    <input type="radio" name="star-guidance" id="star-guidance-5" value="5"><label for="star-guidance-5">&#9733;</label>
+                                    <input type="radio" name="star-guidance" id="star-guidance-4" value="4"><label for="star-guidance-4">&#9733;</label>
+                                    <input type="radio" name="star-guidance" id="star-guidance-3" value="3"><label for="star-guidance-3">&#9733;</label>
+                                    <input type="radio" name="star-guidance" id="star-guidance-2" value="2"><label for="star-guidance-2">&#9733;</label>
+                                    <input type="radio" name="star-guidance" id="star-guidance-1" value="1"><label for="star-guidance-1">&#9733;</label>
+                                </div>
+                            </div>
+                        </div>
+                        <textarea id="rate-comment" placeholder="Share your experience (optional)..."></textarea>
+                        <button type="submit" class="btn btn-accent">Submit Rating</button>
+                        <p class="error-msg" id="rate-error"></p>
+                        <p class="success-msg" id="rate-success"></p>
+                    </form>
+                </div>
+
+                <div class="ratings-section">
+                    <h3>Ratings</h3>
+                    <div id="ratings-list">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </div>
+
+                <div class="discussion-section">
+                    <h3>Discussion</h3>
+                    <div class="discussion-post-form">
+                        <textarea id="discussion-input" placeholder="Join the discussion..."></textarea>
+                        <button class="btn btn-accent" id="discussion-post-btn">Post Comment</button>
+                    </div>
+                    <div id="discussion-list">
+                        <div class="empty-state">Loading...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="sidebar-card">
+                    <h3>Leaderboard</h3>
+                    <div id="school-leaderboard">
+                        <div class="empty-state" style="padding:1rem;font-size:0.9rem">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,761 @@
+package main
+
+import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/gorilla/mux"
+)
+
+func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func handleRegister(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) < 3 || len(req.Password) < 4 {
+		jsonResponse(w, 400, map[string]string{"error": "username must be 3+ chars, password 4+ chars"})
+		return
+	}
+
+	hash, err := hashPassword(req.Password)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	userID, err := createUser(req.Username, hash)
+	if err != nil {
+		jsonResponse(w, 409, map[string]string{"error": "username already taken"})
+		return
+	}
+
+	token := createSession(userID, req.Username)
+	setSessionCookie(w, token)
+	jsonResponse(w, 201, map[string]interface{}{"id": userID, "username": req.Username})
+}
+
+func handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	userID, hash, err := getUserByUsername(req.Username)
+	if err != nil || !checkPassword(hash, req.Password) {
+		jsonResponse(w, 401, map[string]string{"error": "invalid credentials"})
+		return
+	}
+
+	token := createSession(userID, req.Username)
+	setSessionCookie(w, token)
+	jsonResponse(w, 200, map[string]interface{}{"id": userID, "username": req.Username})
+}
+
+func handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie("session"); err == nil {
+		deleteSession(cookie.Value)
+	}
+	clearSessionCookie(w)
+	jsonResponse(w, 200, map[string]string{"message": "logged out"})
+}
+
+func handleMe(w http.ResponseWriter, r *http.Request) {
+	sd, ok := getSessionFromRequest(r)
+	if !ok {
+		jsonResponse(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
+	username, err := getUserByID(sd.UserID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	pic, _ := getProfilePicture(sd.UserID)
+	points, _ := getContributionPoints(sd.UserID)
+
+	jsonResponse(w, 200, map[string]interface{}{
+		"id":                  sd.UserID,
+		"username":            username,
+		"is_admin":            sd.IsAdmin,
+		"contribution_points": points,
+		"profile_picture":     pic,
+	})
+}
+
+// ==================== Institution Handlers ====================
+
+func handleListInstitutions(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	items, err := searchInstitutions(query)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if items == nil {
+		items = []InstitutionSummary{}
+	}
+	jsonResponse(w, 200, items)
+}
+
+func handleCreateInstitution(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+
+	// Check contribution points threshold
+	points, _ := getContributionPoints(userID)
+	if points < institutionCreateThreshold {
+		jsonResponse(w, 403, map[string]string{"error": fmt.Sprintf("need %d contribution points to add institutions (you have %d)", institutionCreateThreshold, points)})
+		return
+	}
+
+	var req struct {
+		Title           string `json:"title"`
+		InstitutionType string `json:"institution_type"`
+		Description     string `json:"description"`
+		EmailDomain     string `json:"email_domain"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		jsonResponse(w, 400, map[string]string{"error": "title is required"})
+		return
+	}
+
+	id, err := createInstitution(req.Title, strings.TrimSpace(req.InstitutionType), strings.TrimSpace(req.Description), strings.TrimSpace(req.EmailDomain), userID)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") {
+			jsonResponse(w, 409, map[string]string{"error": "institution already exists"})
+		} else {
+			jsonResponse(w, 500, map[string]string{"error": "server error"})
+		}
+		return
+	}
+
+	jsonResponse(w, 201, map[string]interface{}{"id": id, "title": req.Title})
+}
+
+func handleGetInstitution(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	inst, err := getInstitutionDetail(id)
+	if err != nil {
+		jsonResponse(w, 404, map[string]string{"error": "institution not found"})
+		return
+	}
+
+	if inst.Ratings == nil {
+		inst.Ratings = []RatingDetail{}
+	}
+
+	jsonResponse(w, 200, inst)
+}
+
+func handleRateInstitution(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	var req struct {
+		ScoreAcademic       int    `json:"score_academic"`
+		ScoreInfrastructure int    `json:"score_infrastructure"`
+		ScoreStudentLife    int    `json:"score_student_life"`
+		ScoreCareer         int    `json:"score_career"`
+		ScoreGuidance       int    `json:"score_guidance"`
+		Comment             string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	scores := []int{req.ScoreAcademic, req.ScoreInfrastructure, req.ScoreStudentLife, req.ScoreCareer, req.ScoreGuidance}
+	for _, s := range scores {
+		if s < 1 || s > 5 {
+			jsonResponse(w, 400, map[string]string{"error": "all category scores must be 1-5"})
+			return
+		}
+	}
+
+	isNew, err := upsertRating(instID, userID, req.ScoreAcademic, req.ScoreInfrastructure, req.ScoreStudentLife, req.ScoreCareer, req.ScoreGuidance, strings.TrimSpace(req.Comment))
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	// Award +25 points for new ratings only
+	if isNew {
+		awardContributionPoints(userID, "rate_institution", 25, instID)
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "rating saved"})
+}
+
+// ==================== Verify Email Handler ====================
+
+func handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	req.Email = strings.TrimSpace(req.Email)
+	if req.Email == "" {
+		jsonResponse(w, 400, map[string]string{"error": "email is required"})
+		return
+	}
+
+	domain, err := getInstitutionEmailDomain(instID)
+	if err != nil {
+		jsonResponse(w, 404, map[string]string{"error": "institution not found"})
+		return
+	}
+	if domain == "" {
+		jsonResponse(w, 400, map[string]string{"error": "this institution does not have a verification domain"})
+		return
+	}
+
+	// Check email ends with the domain
+	if !strings.HasSuffix(strings.ToLower(req.Email), strings.ToLower(domain)) {
+		jsonResponse(w, 400, map[string]string{"error": "email does not match institution domain " + domain})
+		return
+	}
+
+	if err := verifyUserForInstitution(userID, instID, req.Email); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "verification successful"})
+}
+
+// ==================== Discussion Handlers ====================
+
+func handleGetDiscussion(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	comments, err := getInstitutionDiscussion(instID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, comments)
+}
+
+func handlePostComment(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	// Check if user is muted
+	muted, mutedUntil, _ := isUserMuted(instID, userID)
+	if muted {
+		jsonResponse(w, 403, map[string]string{"error": "You are muted until " + mutedUntil})
+		return
+	}
+
+	var req struct {
+		Content  string `json:"content"`
+		ParentID *int64 `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	req.Content = strings.TrimSpace(req.Content)
+	if req.Content == "" {
+		jsonResponse(w, 400, map[string]string{"error": "content is required"})
+		return
+	}
+
+	commentID, err := createDiscussionComment(instID, userID, req.ParentID, req.Content)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	// Award +12 points for posting a comment
+	awardContributionPoints(userID, "post_comment", 12, commentID)
+
+	// If this is a reply, award +12 points to the parent comment author
+	if req.ParentID != nil {
+		parentOwner, err := getCommentOwner(*req.ParentID)
+		if err == nil && parentOwner != userID {
+			awardContributionPoints(parentOwner, "received_reply", 12, commentID)
+		}
+	}
+
+	jsonResponse(w, 201, map[string]interface{}{"id": commentID, "message": "comment posted"})
+}
+
+// ==================== Profile Handlers ====================
+
+func handleGetProfile(w http.ResponseWriter, r *http.Request) {
+	username := mux.Vars(r)["username"]
+	profile, err := getUserProfile(username)
+	if err != nil {
+		jsonResponse(w, 404, map[string]string{"error": "user not found"})
+		return
+	}
+
+	// Get institution affiliations (institutions they've rated)
+	institutions, err := getUserInstitutions(profile.UserID)
+	if err != nil {
+		institutions = []InstitutionSummary{}
+	}
+
+	education, err := getUserEducation(profile.UserID)
+	if err != nil {
+		education = []EducationEntry{}
+	}
+
+	jsonResponse(w, 200, map[string]interface{}{
+		"user_id":             profile.UserID,
+		"username":            profile.Username,
+		"profile_picture":     profile.ProfilePicture,
+		"contribution_points": profile.ContributionPoints,
+		"rating_count":        profile.RatingCount,
+		"institutions":        institutions,
+		"education":           education,
+	})
+}
+
+func handleUploadProfilePicture(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "file too large (max 5MB)"})
+		return
+	}
+
+	file, _, err := r.FormFile("picture")
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "no file provided"})
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	if !allowedImageTypes[contentType] {
+		jsonResponse(w, 400, map[string]string{"error": "invalid image type"})
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	ext := ".jpg"
+	switch contentType {
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	filename := hex.EncodeToString(randBytes) + ext
+	savePath := filepath.Join("uploads", "profiles", filename)
+
+	out, err := os.Create(savePath)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	defer out.Close()
+
+	out.Write(buf[:n])
+	io.Copy(out, file)
+
+	oldPic, _ := getProfilePicture(userID)
+	if oldPic != "" {
+		os.Remove(oldPic)
+	}
+
+	if err := updateProfilePicture(userID, savePath); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"path": "/" + savePath})
+}
+
+func handleDeleteProfilePicture(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+
+	oldPic, _ := getProfilePicture(userID)
+	if oldPic != "" {
+		os.Remove(oldPic)
+	}
+
+	if err := updateProfilePicture(userID, ""); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "picture removed"})
+}
+
+// ==================== Institution Cover ====================
+
+func handleUploadInstitutionCover(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	// Check contribution points threshold OR moderator status
+	points, _ := getContributionPoints(userID)
+	modID, _ := getInstitutionModerator(instID)
+	sd, _ := getSessionFromRequest(r)
+	if points < institutionCreateThreshold && modID != userID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": fmt.Sprintf("need %d+ contribution points to upload covers", institutionCreateThreshold)})
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "file too large (max 5MB)"})
+		return
+	}
+
+	file, _, err := r.FormFile("cover")
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "no file provided"})
+		return
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := file.Read(buf)
+	if err != nil && err != io.EOF {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	contentType := http.DetectContentType(buf[:n])
+	if !allowedImageTypes[contentType] {
+		jsonResponse(w, 400, map[string]string{"error": "invalid image type"})
+		return
+	}
+
+	randBytes := make([]byte, 16)
+	rand.Read(randBytes)
+	ext := ".jpg"
+	switch contentType {
+	case "image/png":
+		ext = ".png"
+	case "image/gif":
+		ext = ".gif"
+	case "image/webp":
+		ext = ".webp"
+	}
+	filename := hex.EncodeToString(randBytes) + ext
+	savePath := filepath.Join("uploads", "topics", filename)
+
+	out, err := os.Create(savePath)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	defer out.Close()
+
+	out.Write(buf[:n])
+	io.Copy(out, file)
+
+	if err := updateTopicCover(instID, savePath); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"path": "/" + savePath})
+}
+
+// ==================== Education Handlers ====================
+
+func handleAddEducation(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+
+	var req struct {
+		InstitutionName string `json:"institution_name"`
+		StartDate       string `json:"start_date"`
+		EndDate         string `json:"end_date"`
+		Role            string `json:"role"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	req.InstitutionName = strings.TrimSpace(req.InstitutionName)
+	req.StartDate = strings.TrimSpace(req.StartDate)
+	req.Role = strings.TrimSpace(req.Role)
+	req.EndDate = strings.TrimSpace(req.EndDate)
+
+	if req.InstitutionName == "" || req.StartDate == "" || req.Role == "" {
+		jsonResponse(w, 400, map[string]string{"error": "institution_name, start_date, and role are required"})
+		return
+	}
+
+	id, err := addEducationEntry(userID, req.InstitutionName, req.StartDate, req.EndDate, req.Role)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 201, map[string]interface{}{"id": id, "message": "education entry added"})
+}
+
+func handleDeleteEducation(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	idStr := mux.Vars(r)["id"]
+	entryID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid entry id"})
+		return
+	}
+
+	err = removeEducationEntry(entryID, userID)
+	if err == sql.ErrNoRows {
+		jsonResponse(w, 404, map[string]string{"error": "entry not found or not owned by you"})
+		return
+	}
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "education entry removed"})
+}
+
+// ==================== Admin Handlers ====================
+
+func handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := getAllUsersWithScores()
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if users == nil {
+		users = []AdminUser{}
+	}
+	jsonResponse(w, 200, users)
+}
+
+// ==================== Leaderboard & Rankings Handlers ====================
+
+func handleSchoolLeaderboard(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	instID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	leaderboard, err := getSchoolLeaderboard(instID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	modID, _ := getInstitutionModerator(instID)
+	jsonResponse(w, 200, map[string]interface{}{
+		"entries":      leaderboard,
+		"moderator_id": modID,
+	})
+}
+
+func handleTopSchools(w http.ResponseWriter, r *http.Request) {
+	instType := r.URL.Query().Get("type")
+	rankings, err := getTopSchools(instType)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	jsonResponse(w, 200, rankings)
+}
+
+func handleAdminSetPoints(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	userID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	var req struct {
+		Points int `json:"points"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if err := setUserContributionPoints(userID, req.Points); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "points updated"})
+}
+
+// ==================== Comment Deletion Handlers ====================
+
+func handleDeleteComment(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	commentID, err := strconv.ParseInt(vars["commentId"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid comment id"})
+		return
+	}
+
+	if err := deleteDiscussionComment(commentID, userID); err != nil {
+		jsonResponse(w, 403, map[string]string{"error": "cannot delete this comment"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "comment deleted"})
+}
+
+func handleModDeleteComment(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	instID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+	commentID, err := strconv.ParseInt(vars["commentId"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid comment id"})
+		return
+	}
+
+	// Check moderator or admin
+	sd, _ := getSessionFromRequest(r)
+	modID, _ := getInstitutionModerator(instID)
+	if modID != userID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": "only the moderator can do this"})
+		return
+	}
+
+	if err := modDeleteDiscussionComment(commentID); err != nil {
+		jsonResponse(w, 404, map[string]string{"error": "comment not found"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "comment deleted by moderator"})
+}
+
+// ==================== Mute Handler ====================
+
+func handleMuteUser(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	instID, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid institution id"})
+		return
+	}
+
+	// Check moderator or admin
+	sd, _ := getSessionFromRequest(r)
+	modID, _ := getInstitutionModerator(instID)
+	if modID != userID && !sd.IsAdmin {
+		jsonResponse(w, 403, map[string]string{"error": "only the moderator can mute users"})
+		return
+	}
+
+	var req struct {
+		TargetUserID int64 `json:"user_id"`
+		Duration     int   `json:"duration"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+
+	if req.Duration < 1 || req.Duration > 10080 {
+		jsonResponse(w, 400, map[string]string{"error": "duration must be 1-10080 minutes"})
+		return
+	}
+
+	if req.TargetUserID == userID {
+		jsonResponse(w, 400, map[string]string{"error": "cannot mute yourself"})
+		return
+	}
+
+	if err := muteUser(instID, req.TargetUserID, userID, req.Duration); err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	jsonResponse(w, 200, map[string]string{"message": "user muted"})
+}

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RateEd - Profile</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1><a href="/home" style="text-decoration:none;color:inherit">Rate<span>Ed</span></a></h1>
+        <div class="header-right">
+            <span class="points-badge" id="points-badge" title="Contribution Points"></span>
+            <span id="username"></span>
+            <button class="btn btn-outline btn-small" id="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <a href="/home" class="back-link">&larr; Back to institutions</a>
+
+        <div class="profile-card">
+            <div class="profile-header">
+                <div class="profile-picture-container">
+                    <img id="profile-picture" src="" alt="Profile" class="profile-picture">
+                    <div id="picture-upload-controls" style="display:none">
+                        <label for="picture-input" class="btn btn-accent btn-small" style="cursor:pointer">Change</label>
+                        <input type="file" id="picture-input" accept="image/*" style="display:none">
+                        <button class="btn btn-small btn-destructive" id="remove-picture-btn">Remove</button>
+                    </div>
+                </div>
+                <div class="profile-info">
+                    <h2 id="profile-username"></h2>
+                    <div class="profile-stats">
+                        <span class="points-badge" id="profile-points">0 pts</span>
+                        <span id="profile-rating-count">0 ratings</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="profile-card">
+            <h3 style="color:#2563EB;margin-bottom:0.8rem">Institution Affiliations</h3>
+            <div id="profile-institutions-list">
+                <div class="empty-state" style="padding:1rem">Loading...</div>
+            </div>
+        </div>
+
+        <div class="profile-card" id="education-section">
+            <h3 style="color:#2563EB;margin-bottom:0.8rem">Education History</h3>
+            <div id="edu-form-container" style="display:none">
+                <div class="edu-form-row">
+                    <div style="position:relative;flex:1">
+                        <input type="text" id="edu-inst-name" class="edu-input" placeholder="Institution name">
+                        <div id="edu-autocomplete" class="edu-autocomplete"></div>
+                    </div>
+                    <select id="edu-role" class="edu-input">
+                        <option value="">Select role...</option>
+                        <option value="Student">Student</option>
+                        <option value="Alumni">Alumni</option>
+                        <option value="Faculty">Faculty</option>
+                        <option value="Staff">Staff</option>
+                    </select>
+                </div>
+                <div class="edu-form-dates">
+                    <input type="number" id="edu-start-date" class="edu-input" min="1950" max="2030" placeholder="Start year">
+                    <input type="number" id="edu-end-date" class="edu-input" min="1950" max="2030" placeholder="End year (optional)">
+                    <button class="btn btn-accent btn-small" id="edu-submit-btn">Add</button>
+                </div>
+                <p class="error-msg" id="edu-error"></p>
+            </div>
+            <div id="education-list">
+                <div class="empty-state" style="padding:1rem">Loading...</div>
+            </div>
+        </div>
+
+        <div id="admin-panel" style="display:none">
+            <div class="admin-card">
+                <h3>Admin Panel</h3>
+                <div id="admin-users-list"></div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

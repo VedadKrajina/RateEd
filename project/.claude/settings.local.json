@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go mod init:*)",
+      "Bash(go get:*)",
+      "Bash(go build:*)",
+      "Bash(curl:*)",
+      "Bash(./rateit:*)",
+      "Bash(/home/vk15/Desktop/bosepo26/project/rateit)",
+      "Bash(go vet:*)",
+      "Bash(TMDB_API_KEY=8f02ce95ac3506ab067da76ba828a439 ./rateit:*)",
+      "Bash(ls:*)",
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(ss:*)",
+      "Bash(timeout:*)",
+      "Bash(python3:*)",
+      "Bash(pgrep:*)",
+      "Bash(kill:*)",
+      "Bash(fuser:*)",
+      "Bash(./rateed:*)",
+      "Bash(/home/vk15/Desktop/bosepo26/project/rateed)"
+    ]
+  }
+}

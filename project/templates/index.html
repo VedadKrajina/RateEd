@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RateEd - Home</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>Rate<span>Ed</span></h1>
+        <div class="header-right">
+            <span class="points-badge" id="points-badge" title="Contribution Points"></span>
+            <span id="username"></span>
+            <button class="btn btn-outline btn-small" id="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="page-layout">
+            <div class="main-content">
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="Search institutions...">
+                    <button class="btn btn-accent" id="search-btn">Search</button>
+                </div>
+
+                <div class="create-section" id="create-section">
+                    <h3>Add a New Institution</h3>
+                    <div class="create-form">
+                        <input type="text" id="create-input" placeholder="Institution name...">
+                        <select id="create-type">
+                            <option value="">Type...</option>
+                            <option value="university">University</option>
+                            <option value="highschool">High School</option>
+                            <option value="school">School</option>
+                            <option value="other">Other</option>
+                        </select>
+                        <button class="btn btn-accent" id="create-btn">Add</button>
+                    </div>
+                    <input type="text" id="create-description" placeholder="Brief description (optional)..." style="width:100%;margin-top:0.5rem;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                    <input type="text" id="create-email-domain" placeholder="Email domain for verification (e.g. @mit.edu)" style="width:100%;margin-top:0.5rem;padding:0.6rem 1rem;border:2px solid #ddd;border-radius:8px;font-size:1rem;">
+                    <p class="error-msg" id="create-error"></p>
+                </div>
+
+                <div id="create-locked" class="create-locked" style="display:none">
+                    <p>Earn <strong id="points-needed"></strong> contribution points to add new institutions. Rate institutions and join discussions to earn points!</p>
+                </div>
+
+                <div id="institutions-list">
+                    <div class="empty-state">Loading...</div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="sidebar-card">
+                    <h3>Top Schools</h3>
+                    <select class="filter-select" id="school-type-filter">
+                        <option value="">All Types</option>
+                        <option value="university">University</option>
+                        <option value="highschool">High School</option>
+                        <option value="school">School</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <div id="school-rankings-list">
+                        <div class="empty-state" style="padding:1rem;font-size:0.9rem">Loading...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
