@@ -1240,6 +1240,44 @@ a.edu-inst-name:hover {
 .activity-section h4 { color:#2563EB; margin-bottom:0.5rem; font-size:0.95rem; border-bottom:1px solid #f0f0f0; padding-bottom:0.3rem; }
 .activity-item { padding:0.4rem 0; border-bottom:1px solid #f9f9f9; font-size:0.85rem; color:#444; }
 
+/* Language toggle */
+.lang-toggle {
+    background: rgba(255,255,255,0.2);
+    border: 1.5px solid rgba(255,255,255,0.5);
+    color: #fff;
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+}
+.lang-toggle:hover { background: rgba(255,255,255,0.35); }
+
+/* Currency toggle */
+.currency-toggle {
+    display: flex;
+    gap: 0;
+    border: 1.5px solid #ddd;
+    border-radius: 7px;
+    overflow: hidden;
+    margin-left: 0.3rem;
+}
+.currency-btn {
+    padding: 0.2rem 0.6rem;
+    border: none;
+    background: #f3f4f6;
+    color: #555;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-right: 1px solid #ddd;
+    transition: background 0.15s, color 0.15s;
+}
+.currency-btn:last-child { border-right: none; }
+.currency-btn.active { background: #2563EB; color: #fff; }
+
 /* Responsive */
 @media (max-width: 768px) {
     .page-layout {

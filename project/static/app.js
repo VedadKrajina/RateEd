@@ -41,6 +41,107 @@ function debounce(fn, ms) {
 }
 
 let currentUser = null;
+let currentLang = localStorage.getItem('lang') || 'en';
+let currentCurrency = 'USD';
+
+const CURRENCY_RATES = { USD: 1, KM: 1.77, EUR: 0.92 };
+const CURRENCY_SYMBOLS = { USD: '$', KM: 'KM', EUR: '€' };
+
+function formatTuition(usdMin, usdMax, currency) {
+    const rate = CURRENCY_RATES[currency];
+    const sym = CURRENCY_SYMBOLS[currency];
+    const fmt = v => currency === 'KM'
+        ? `${Math.round(v * rate).toLocaleString()} KM`
+        : `${sym}${Math.round(v * rate).toLocaleString()}`;
+    if (usdMin && usdMax) return `${fmt(usdMin)}–${fmt(usdMax)}/yr`;
+    if (usdMin) return `From ${fmt(usdMin)}/yr`;
+    if (usdMax) return `Up to ${fmt(usdMax)}/yr`;
+    return '';
+}
+
+const TRANSLATIONS = {
+    en: {
+        logout: 'Logout', login: 'Login', cancel: 'Cancel',
+        loginRequired: 'Login Required',
+        loginToRate: 'You need to be logged in to rate institutions.',
+        verifyToRate: 'You must be verified for this institution to leave a rating. Use the verification section above to get verified.',
+        rateTitle: 'Rate This Institution',
+        submitRating: 'Submit Rating',
+        ratingsTitle: 'Ratings',
+        discussionTitle: 'Discussion',
+        joinDiscussion: 'Join the discussion...',
+        postComment: 'Post Comment',
+        verified: '\u2713 Verified',
+        noRatings: 'No ratings yet. Be the first!',
+        leaderboard: 'Leaderboard',
+        backToInstitutions: '\u2190 Back to institutions',
+        programs: 'Programs Offered',
+        pros: '\u2713 Pros', cons: '\u2717 Cons',
+        verifyAffiliation: 'Verify Your Affiliation',
+        emailVerification: 'Email Verification',
+        uploadPhotoProof: 'Upload Photo Proof',
+        editDetails: 'Edit Details',
+        save: 'Save',
+        addPhoto: 'Add Photo',
+        pendingVerifications: 'Pending Verification Requests',
+        searchPlaceholder: 'Search institutions...',
+        addInstitution: 'Add Institution',
+        createInstitution: 'Add New Institution',
+    },
+    bs: {
+        logout: 'Odjava', login: 'Prijava', cancel: 'Odustani',
+        loginRequired: 'Prijavite se',
+        loginToRate: 'Morate biti prijavljeni da biste ocijenili instituciju.',
+        verifyToRate: 'Morate biti verifikovani za ovu instituciju da biste ostavili ocjenu. Koristite gore navedenu sekciju za verifikaciju.',
+        rateTitle: 'Ocijenite instituciju',
+        submitRating: 'Pošalji ocjenu',
+        ratingsTitle: 'Ocjene',
+        discussionTitle: 'Diskusija',
+        joinDiscussion: 'Pridružite se diskusiji...',
+        postComment: 'Objavi komentar',
+        verified: '\u2713 Verifikovan',
+        noRatings: 'Još nema ocjena. Budite prvi!',
+        leaderboard: 'Rang lista',
+        backToInstitutions: '\u2190 Nazad na institucije',
+        programs: 'Programi',
+        pros: '\u2713 Prednosti', cons: '\u2717 Nedostaci',
+        verifyAffiliation: 'Verifikujte svoju povezanost',
+        emailVerification: 'Email verifikacija',
+        uploadPhotoProof: 'Otpremite foto dokaz',
+        editDetails: 'Uredi detalje',
+        save: 'Sačuvaj',
+        addPhoto: 'Dodaj fotografiju',
+        pendingVerifications: 'Zahtjevi za verifikaciju',
+        searchPlaceholder: 'Pretraži institucije...',
+        addInstitution: 'Dodaj instituciju',
+        createInstitution: 'Dodaj novu instituciju',
+    }
+};
+
+function applyTranslations() {
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.dataset.i18n;
+        if (t[key] !== undefined) el.textContent = t[key];
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.dataset.i18nPlaceholder;
+        if (t[key] !== undefined) el.placeholder = t[key];
+    });
+    const toggle = document.getElementById('lang-toggle');
+    if (toggle) toggle.textContent = currentLang === 'en' ? 'BS' : 'EN';
+}
+
+function initLangToggle() {
+    const btn = document.getElementById('lang-toggle');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+        currentLang = currentLang === 'en' ? 'bs' : 'en';
+        localStorage.setItem('lang', currentLang);
+        applyTranslations();
+        document.dispatchEvent(new CustomEvent('langchange'));
+    });
+}
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -388,6 +489,11 @@ function initInstitutionPage() {
         });
     }
 
+    // Close login modal
+    document.getElementById('close-login-modal')?.addEventListener('click', () => {
+        document.getElementById('login-modal').style.display = 'none';
+    });
+
     api('GET', '/api/me').then(user => {
         currentUser = user;
         usernameEl.textContent = user.username;
@@ -406,7 +512,15 @@ function initInstitutionPage() {
         loadDiscussion();
         loadLeaderboard().then(() => loadModVerificationPanel());
     }).catch(() => {
-        window.location.href = '/';
+        // Guest mode — show the page without login
+        if (logoutBtn) { logoutBtn.textContent = 'Login'; logoutBtn.onclick = () => window.location.href = '/'; }
+        const guestNotice = document.getElementById('guest-rate-notice');
+        if (guestNotice) guestNotice.style.display = 'block';
+        const rateFormSection = document.getElementById('rate-form-section');
+        if (rateFormSection) rateFormSection.style.display = 'none';
+        loadInstitution();
+        loadDiscussion();
+        loadLeaderboard();
     });
 
     logoutBtn.addEventListener('click', async () => {
@@ -446,14 +560,22 @@ function initInstitutionPage() {
             // Extra meta (city, ownership, tuition)
             const extraMeta = document.getElementById('inst-extra-meta');
             if (extraMeta) {
+                const hasTuition = t.tuition_min || t.tuition_max;
+                const currencyToggleEl = document.getElementById('currency-toggle');
+                if (currencyToggleEl) currencyToggleEl.style.display = hasTuition ? 'flex' : 'none';
+
                 const tags = [];
                 if (t.city) tags.push(`<span class="meta-chip city-chip">&#128205; ${escapeHtml(t.city)}</span>`);
                 if (t.ownership) tags.push(`<span class="meta-chip ownership-chip">${escapeHtml(t.ownership)}</span>`);
-                if (t.tuition_min || t.tuition_max) {
-                    const tRange = t.tuition_max ? `$${t.tuition_min.toLocaleString()}–$${t.tuition_max.toLocaleString()}/yr` : `From $${t.tuition_min.toLocaleString()}/yr`;
-                    tags.push(`<span class="meta-chip tuition-chip">&#128176; ${tRange}</span>`);
+                if (hasTuition) {
+                    const tRange = formatTuition(t.tuition_min, t.tuition_max, currentCurrency);
+                    tags.push(`<span class="meta-chip tuition-chip" id="tuition-chip">&#128176; ${tRange}</span>`);
                 }
-                extraMeta.innerHTML = tags.join('');
+                // Insert chips before the currency toggle
+                const currencyEl = extraMeta.querySelector('#currency-toggle');
+                extraMeta.innerHTML = '';
+                tags.forEach(tag => { extraMeta.insertAdjacentHTML('beforeend', tag); });
+                if (currencyEl) extraMeta.appendChild(currencyEl);
             }
 
             // Photos gallery
@@ -507,6 +629,8 @@ function initInstitutionPage() {
             if (canEdit && editBtnContainer) {
                 editBtnContainer.style.display = 'block';
                 // Pre-fill edit fields
+                document.getElementById('edit-name').value = t.title || '';
+                document.getElementById('edit-email-domain').value = t.email_domain || '';
                 document.getElementById('edit-city').value = t.city || '';
                 document.getElementById('edit-ownership').value = t.ownership || '';
                 document.getElementById('edit-tuition-min').value = t.tuition_min || '';
@@ -544,32 +668,43 @@ function initInstitutionPage() {
                 });
             }
 
-            // Verification section
+            // Verification section + rate form visibility
             const verifySection = document.getElementById('verify-section');
+            const rateFormSection = document.getElementById('rate-form-section');
+            const notVerifiedNotice = document.getElementById('not-verified-notice');
             if (currentUser) {
-                const alreadyVerified = t.ratings.some(r => r.user_id === currentUser.id && r.is_verified);
-                if (alreadyVerified) {
-                    verifySection.style.display = 'block';
-                    verifySection.innerHTML = '<h3>Verification</h3><p style="color:#22C55E;font-weight:600">&#10003; You are verified for this institution</p>';
-                } else {
-                    verifySection.style.display = 'block';
-                    if (!t.email_domain) {
-                        // Hide email tab, show only photo tab
-                        const emailTab = document.getElementById('verify-tab-email');
-                        if (emailTab) emailTab.style.display = 'none';
-                        const emailSection = document.getElementById('verify-email-section');
-                        if (emailSection) emailSection.style.display = 'none';
-                        const photoSection = document.getElementById('verify-photo-section');
-                        if (photoSection) photoSection.style.display = 'block';
-                    } else {
-                        const emailInput = document.getElementById('verify-email');
-                        if (emailInput) emailInput.placeholder = `your.name${t.email_domain}`;
+                if (t.is_current_user_verified) {
+                    // Verified: show "you are verified" and show rate form
+                    if (verifySection) {
+                        verifySection.style.display = 'block';
+                        verifySection.innerHTML = '<h3>Verification</h3><p style="color:#22C55E;font-weight:600">&#10003; You are verified for this institution</p>';
                     }
+                    if (rateFormSection) rateFormSection.style.display = 'block';
+                    if (notVerifiedNotice) notVerifiedNotice.style.display = 'none';
+                } else {
+                    // Not verified: show verify section, hide rate form
+                    if (verifySection) {
+                        verifySection.style.display = 'block';
+                        if (!t.email_domain) {
+                            const emailTab = document.getElementById('verify-tab-email');
+                            if (emailTab) emailTab.style.display = 'none';
+                            const emailSection = document.getElementById('verify-email-section');
+                            if (emailSection) emailSection.style.display = 'none';
+                            const photoSection = document.getElementById('verify-photo-section');
+                            if (photoSection) photoSection.style.display = 'block';
+                        } else {
+                            const emailInput = document.getElementById('verify-email');
+                            if (emailInput) emailInput.placeholder = `your.name${t.email_domain}`;
+                        }
+                    }
+                    if (rateFormSection) rateFormSection.style.display = 'none';
+                    if (notVerifiedNotice) notVerifiedNotice.style.display = 'block';
                 }
             }
 
             if (t.ratings.length === 0) {
-                ratingsList.innerHTML = '<div class="empty-state">No ratings yet. Be the first!</div>';
+                const noRatingsText = (TRANSLATIONS[currentLang] || TRANSLATIONS.en).noRatings;
+                ratingsList.innerHTML = `<div class="empty-state">${noRatingsText}</div>`;
             } else {
                 ratingsList.innerHTML = t.ratings.map(r => {
                     const categoryLabels = {
@@ -601,7 +736,8 @@ function initInstitutionPage() {
                             </div>
                         `;
                     }
-                    const verifiedBadge = r.is_verified ? '<span class="verified-badge" title="Verified">&#10003; Verified</span>' : '';
+                    const verifiedText = (TRANSLATIONS[currentLang] || TRANSLATIONS.en).verified;
+                    const verifiedBadge = r.is_verified ? `<span class="verified-badge" title="Verified">${verifiedText}</span>` : '';
                     return `
                         <div class="comment-card">
                             <div class="comment-header">
@@ -695,6 +831,8 @@ function initInstitutionPage() {
         errEl.textContent = ''; sucEl.textContent = '';
         try {
             await api('PATCH', `/api/institutions/${instId}/meta`, {
+                title: document.getElementById('edit-name').value.trim(),
+                email_domain: document.getElementById('edit-email-domain').value.trim(),
                 city: document.getElementById('edit-city').value.trim(),
                 ownership: document.getElementById('edit-ownership').value,
                 programs: document.getElementById('edit-programs').value.trim(),
@@ -707,6 +845,21 @@ function initInstitutionPage() {
             setTimeout(() => { sucEl.textContent = ''; }, 2000);
             loadInstitution();
         } catch (err) { errEl.textContent = err.message; }
+    });
+
+    // Currency toggle
+    document.querySelectorAll('.currency-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentCurrency = btn.dataset.currency;
+            document.querySelectorAll('.currency-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            // Update tuition chip without re-loading full institution
+            const tuitionChip = document.getElementById('tuition-chip');
+            if (tuitionChip) {
+                // Re-load institution to get fresh tuition values rendered in new currency
+                loadInstitution();
+            }
+        });
     });
 
     // Photo upload
@@ -945,6 +1098,11 @@ function initInstitutionPage() {
             });
         });
     }
+
+    // Reload dynamic content on language change
+    document.addEventListener('langchange', () => {
+        if (document.getElementById('inst-title')) loadInstitution();
+    });
 
     // Post top-level comment
     const postBtn = document.getElementById('discussion-post-btn');
@@ -1414,6 +1572,8 @@ function initAdminPage() {
 
 // Init on page load
 document.addEventListener('DOMContentLoaded', () => {
+    applyTranslations();
+    initLangToggle();
     initLoginPage();
     initHomePage();
     initInstitutionPage();

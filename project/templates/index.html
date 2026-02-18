@@ -10,9 +10,10 @@
     <div class="header">
         <h1>Rate<span>Ed</span></h1>
         <div class="header-right">
+            <button class="lang-toggle" id="lang-toggle">BS</button>
             <span class="points-badge" id="points-badge" title="Contribution Points"></span>
             <span id="username"></span>
-            <button class="btn btn-outline btn-small" id="logout-btn">Logout</button>
+            <button class="btn btn-outline btn-small" id="logout-btn" data-i18n="logout">Logout</button>
         </div>
     </div>
 
@@ -20,7 +21,7 @@
         <div class="page-layout">
             <div class="main-content">
                 <div class="search-bar">
-                    <input type="text" id="search-input" placeholder="Search institutions...">
+                    <input type="text" id="search-input" placeholder="Search institutions..." data-i18n-placeholder="searchPlaceholder">
                     <button class="btn btn-accent" id="search-btn">Search</button>
                 </div>
 

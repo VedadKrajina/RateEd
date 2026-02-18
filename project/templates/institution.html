@@ -10,9 +10,22 @@
     <div class="header">
         <h1><a href="/home" style="text-decoration:none;color:inherit">Rate<span>Ed</span></a></h1>
         <div class="header-right">
+            <button class="lang-toggle" id="lang-toggle">BS</button>
             <span class="points-badge" id="points-badge" title="Contribution Points"></span>
             <span id="username"></span>
-            <button class="btn btn-outline btn-small" id="logout-btn">Logout</button>
+            <button class="btn btn-outline btn-small" id="logout-btn" data-i18n="logout">Logout</button>
+        </div>
+    </div>
+
+    <!-- Login popup modal -->
+    <div id="login-modal" class="modal" style="display:none">
+        <div class="modal-content" style="max-width:380px;text-align:center">
+            <h3 data-i18n="loginRequired">Login Required</h3>
+            <p style="color:#666;margin:0.8rem 0" data-i18n="loginToRate">You need to be logged in to rate institutions.</p>
+            <div style="display:flex;gap:0.8rem;justify-content:center;margin-top:1.2rem">
+                <a href="/" class="btn btn-accent" data-i18n="login">Login</a>
+                <button class="btn btn-outline" id="close-login-modal" data-i18n="cancel">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -27,11 +40,21 @@
                     <div id="inst-description" class="inst-description"></div>
                     <div id="inst-meta" class="inst-meta"></div>
                     <div id="inst-avg" class="avg-rating" style="margin-top:0.5rem"></div>
-                    <div id="inst-extra-meta" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem"></div>
+                    <div id="inst-extra-meta" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+                        <div id="currency-toggle" class="currency-toggle" style="display:none">
+                            <button class="currency-btn active" data-currency="USD">$ USD</button>
+                            <button class="currency-btn" data-currency="KM">KM</button>
+                            <button class="currency-btn" data-currency="EUR">€ EUR</button>
+                        </div>
+                    </div>
                     <div id="inst-edit-btn-container" style="margin-top:0.8rem;display:none">
                         <button class="btn btn-small" id="inst-edit-toggle-btn" style="background:#6366F1;color:#fff">Edit Details</button>
                     </div>
                     <div id="inst-edit-panel" style="display:none;margin-top:1rem;border-top:1px solid #f0f0f0;padding-top:1rem">
+                        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem">
+                            <input type="text" id="edit-name" placeholder="Institution name" style="flex:2;min-width:200px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
+                            <input type="text" id="edit-email-domain" placeholder="Email domain (e.g. @school.edu)" style="flex:1;min-width:160px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
+                        </div>
                         <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem">
                             <input type="text" id="edit-city" placeholder="City" style="flex:1;min-width:120px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
                             <select id="edit-ownership" style="padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem;background:#fff">
@@ -39,8 +62,8 @@
                                 <option value="public">Public</option>
                                 <option value="private">Private</option>
                             </select>
-                            <input type="number" id="edit-tuition-min" placeholder="Tuition min ($)" style="width:130px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
-                            <input type="number" id="edit-tuition-max" placeholder="Tuition max ($)" style="width:130px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
+                            <input type="number" id="edit-tuition-min" placeholder="Tuition min (USD)" style="width:140px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
+                            <input type="number" id="edit-tuition-max" placeholder="Tuition max (USD)" style="width:140px;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem" min="0">
                         </div>
                         <input type="text" id="edit-programs" placeholder="Programs (comma-separated: Computer Science, Medicine, Law...)" style="width:100%;margin-bottom:0.5rem;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem">
                         <textarea id="edit-pros" placeholder="Pros (what's great about this institution)..." style="width:100%;margin-bottom:0.5rem;padding:0.5rem 0.8rem;border:2px solid #ddd;border-radius:8px;font-size:0.9rem;min-height:60px;resize:vertical;font-family:inherit"></textarea>
@@ -120,8 +143,25 @@
                     <div id="mod-verification-list"></div>
                 </div>
 
-                <div class="rate-section">
-                    <h3>Rate This Institution</h3>
+                <!-- Not-verified notice (hidden by default) -->
+                <div id="not-verified-notice" class="rate-section" style="display:none">
+                    <h3 data-i18n="rateTitle">Rate This Institution</h3>
+                    <div class="banned-notice" style="background:#FEF3C7;color:#92400E;border-left-color:#F59E0B" data-i18n="verifyToRate">
+                        You must be verified for this institution to leave a rating. Use the verification section above to get verified.
+                    </div>
+                </div>
+
+                <!-- Guest notice (hidden by default, shown when not logged in) -->
+                <div id="guest-rate-notice" class="rate-section" style="display:none">
+                    <h3 data-i18n="rateTitle">Rate This Institution</h3>
+                    <div class="banned-notice" style="background:#EFF6FF;color:#1E40AF;border-left-color:#3B82F6">
+                        <span data-i18n="loginToRate">You need to be logged in to rate institutions.</span>
+                        <a href="/" style="color:#2563EB;margin-left:0.5rem;font-weight:700" data-i18n="login">Login</a>
+                    </div>
+                </div>
+
+                <div class="rate-section" id="rate-form-section">
+                    <h3 data-i18n="rateTitle">Rate This Institution</h3>
                     <form id="rate-form">
                         <div class="category-ratings">
                             <div class="category-row">
@@ -176,24 +216,24 @@
                             </div>
                         </div>
                         <textarea id="rate-comment" placeholder="Share your experience (optional)..."></textarea>
-                        <button type="submit" class="btn btn-accent">Submit Rating</button>
+                        <button type="submit" class="btn btn-accent" data-i18n="submitRating">Submit Rating</button>
                         <p class="error-msg" id="rate-error"></p>
                         <p class="success-msg" id="rate-success"></p>
                     </form>
                 </div>
 
                 <div class="ratings-section">
-                    <h3>Ratings</h3>
+                    <h3 data-i18n="ratingsTitle">Ratings</h3>
                     <div id="ratings-list">
                         <div class="empty-state">Loading...</div>
                     </div>
                 </div>
 
                 <div class="discussion-section">
-                    <h3>Discussion</h3>
+                    <h3 data-i18n="discussionTitle">Discussion</h3>
                     <div class="discussion-post-form">
-                        <textarea id="discussion-input" placeholder="Join the discussion..."></textarea>
-                        <button class="btn btn-accent" id="discussion-post-btn">Post Comment</button>
+                        <textarea id="discussion-input" placeholder="Join the discussion..." data-i18n-placeholder="joinDiscussion"></textarea>
+                        <button class="btn btn-accent" id="discussion-post-btn" data-i18n="postComment">Post Comment</button>
                     </div>
                     <div id="discussion-list">
                         <div class="empty-state">Loading...</div>

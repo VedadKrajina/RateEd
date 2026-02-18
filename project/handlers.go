@@ -206,7 +206,16 @@ func handleGetInstitution(w http.ResponseWriter, r *http.Request) {
 		inst.Ratings = []RatingDetail{}
 	}
 
-	jsonResponse(w, 200, inst)
+	isVerified := false
+	if sd, ok := getSessionFromRequest(r); ok {
+		isVerified, _ = isUserVerifiedForInstitution(sd.UserID, id)
+	}
+
+	type InstResponse struct {
+		*InstitutionDetail
+		IsCurrentUserVerified bool `json:"is_current_user_verified"`
+	}
+	jsonResponse(w, 200, InstResponse{inst, isVerified})
 }
 
 func handleRateInstitution(w http.ResponseWriter, r *http.Request) {
@@ -220,6 +229,16 @@ func handleRateInstitution(w http.ResponseWriter, r *http.Request) {
 
 	if banned, _ := isUserBanned(userID); banned {
 		jsonResponse(w, 403, map[string]string{"error": "your account has been banned"})
+		return
+	}
+
+	verified, err := isUserVerifiedForInstitution(userID, instID)
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+	if !verified {
+		jsonResponse(w, 403, map[string]string{"error": "you must be verified for this institution to leave a rating"})
 		return
 	}
 
@@ -770,20 +789,31 @@ func handleUpdateInstitutionMeta(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		City       string `json:"city"`
-		Ownership  string `json:"ownership"`
-		Programs   string `json:"programs"`
-		Pros       string `json:"pros"`
-		Cons       string `json:"cons"`
-		TuitionMin int    `json:"tuition_min"`
-		TuitionMax int    `json:"tuition_max"`
+		Title       string `json:"title"`
+		EmailDomain string `json:"email_domain"`
+		City        string `json:"city"`
+		Ownership   string `json:"ownership"`
+		Programs    string `json:"programs"`
+		Pros        string `json:"pros"`
+		Cons        string `json:"cons"`
+		TuitionMin  int    `json:"tuition_min"`
+		TuitionMax  int    `json:"tuition_max"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
 		return
 	}
 
-	if err := updateInstitutionMeta(instID, strings.TrimSpace(req.City), strings.TrimSpace(req.Ownership),
+	// Fetch current title if not provided
+	if strings.TrimSpace(req.Title) == "" {
+		inst, err := getInstitutionDetail(instID)
+		if err == nil {
+			req.Title = inst.Title
+		}
+	}
+
+	if err := updateInstitutionMeta(instID, strings.TrimSpace(req.Title), strings.TrimSpace(req.EmailDomain),
+		strings.TrimSpace(req.City), strings.TrimSpace(req.Ownership),
 		strings.TrimSpace(req.Programs), strings.TrimSpace(req.Pros), strings.TrimSpace(req.Cons),
 		req.TuitionMin, req.TuitionMax); err != nil {
 		jsonResponse(w, 500, map[string]string{"error": "server error"})

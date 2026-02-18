@@ -401,9 +401,9 @@ func createInstitution(title, instType, description, emailDomain, city, ownershi
 	return res.LastInsertId()
 }
 
-func updateInstitutionMeta(instID int64, city, ownership, programs, pros, cons string, tuitionMin, tuitionMax int) error {
-	_, err := db.Exec(`UPDATE topics SET city=?, ownership=?, programs=?, pros=?, cons=?, tuition_min=?, tuition_max=? WHERE id=?`,
-		city, ownership, programs, pros, cons, tuitionMin, tuitionMax, instID)
+func updateInstitutionMeta(instID int64, title, emailDomain, city, ownership, programs, pros, cons string, tuitionMin, tuitionMax int) error {
+	_, err := db.Exec(`UPDATE topics SET title=?, email_domain=?, city=?, ownership=?, programs=?, pros=?, cons=?, tuition_min=?, tuition_max=? WHERE id=?`,
+		title, emailDomain, city, ownership, programs, pros, cons, tuitionMin, tuitionMax, instID)
 	return err
 }
 
