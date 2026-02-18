@@ -1,9 +1,9 @@
 module project
 
-go 1.25.7
+go 1.24.0
 
 require (
-	github.com/gorilla/mux v1.8.1 // indirect
-	github.com/mattn/go-sqlite3 v1.14.34 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
+	github.com/gorilla/mux v1.8.1
+	github.com/mattn/go-sqlite3 v1.14.34
+	golang.org/x/crypto v0.48.0
 )
