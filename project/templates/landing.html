@@ -336,15 +336,15 @@
 
     <div class="landing-stats">
         <div class="stat-item">
-            <span class="stat-number" data-target="500">0</span>
+            <span class="stat-number" id="stat-ratings" data-target="0">0</span>
             <span class="stat-label">Reviews Shared</span>
         </div>
         <div class="stat-item">
-            <span class="stat-number" data-target="50">0</span>
+            <span class="stat-number" id="stat-institutions" data-target="0">0</span>
             <span class="stat-label">Institutions</span>
         </div>
         <div class="stat-item">
-            <span class="stat-number" data-target="200">0</span>
+            <span class="stat-number" id="stat-users" data-target="0">0</span>
             <span class="stat-label">Active Students</span>
         </div>
     </div>
@@ -448,6 +448,25 @@
     </div>
 
     <script>
+        // Fetch live stats from API
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const data = await response.json();
+
+                // Update data-target attributes with real values
+                document.getElementById('stat-ratings').dataset.target = data.total_ratings || 0;
+                document.getElementById('stat-institutions').dataset.target = data.total_institutions || 0;
+                document.getElementById('stat-users').dataset.target = data.total_users || 0;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+                // Fallback to default values if API fails
+                document.getElementById('stat-ratings').dataset.target = 500;
+                document.getElementById('stat-institutions').dataset.target = 50;
+                document.getElementById('stat-users').dataset.target = 200;
+            }
+        }
+
         // Animated counter for stats
         function animateCounter(el) {
             const target = parseInt(el.dataset.target);
@@ -477,7 +496,12 @@
         }, { threshold: 0.5 });
 
         const statsSection = document.querySelector('.landing-stats');
-        if (statsSection) observer.observe(statsSection);
+        if (statsSection) {
+            // Load stats first, then set up observer
+            loadStats().then(() => {
+                observer.observe(statsSection);
+            });
+        }
     </script>
 </body>
 </html>

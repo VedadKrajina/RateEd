@@ -37,6 +37,9 @@ func main() {
 	r.HandleFunc("/api/logout", handleLogout).Methods("POST")
 	r.HandleFunc("/api/me", handleMe).Methods("GET")
 
+	// Stats
+	r.HandleFunc("/api/stats", handleGetStats).Methods("GET")
+
 	// Institutions
 	r.HandleFunc("/api/institutions", handleListInstitutions).Methods("GET")
 	r.HandleFunc("/api/institutions", requireAuth(handleCreateInstitution)).Methods("POST")

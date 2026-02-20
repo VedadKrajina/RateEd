@@ -1196,3 +1196,19 @@ func handleMuteUser(w http.ResponseWriter, r *http.Request) {
 
 	jsonResponse(w, 200, map[string]string{"message": "user muted"})
 }
+
+// ==================== Stats Handlers ====================
+
+func handleGetStats(w http.ResponseWriter, r *http.Request) {
+	var totalRatings, totalInstitutions, totalUsers int
+
+	db.QueryRow("SELECT COUNT(*) FROM ratings").Scan(&totalRatings)
+	db.QueryRow("SELECT COUNT(*) FROM topics").Scan(&totalInstitutions)
+	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalUsers)
+
+	jsonResponse(w, 200, map[string]int{
+		"total_ratings":      totalRatings,
+		"total_institutions": totalInstitutions,
+		"total_users":        totalUsers,
+	})
+}
