@@ -84,6 +84,9 @@ func main() {
 
 	// Page routes
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		templates.ExecuteTemplate(w, "landing.html", nil)
+	})
+	r.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		templates.ExecuteTemplate(w, "login.html", nil)
 	})
 	r.HandleFunc("/home", func(w http.ResponseWriter, r *http.Request) {

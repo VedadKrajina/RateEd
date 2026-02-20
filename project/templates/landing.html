@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RateEd - Rate Your Educational Institution</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { overflow-x: hidden; }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(50px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .landing-hero {
+            background: linear-gradient(135deg, #2563EB 0%, #1E40AF 50%, #7C3AED 100%);
+            color: #fff;
+            padding: 4rem 2rem;
+            text-align: center;
+            min-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .landing-hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 50%, rgba(34, 197, 94, 0.2) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(124, 58, 237, 0.3) 0%, transparent 50%);
+            animation: pulse 8s ease-in-out infinite;
+        }
+        .landing-hero > * { position: relative; z-index: 1; }
+
+        .bosepo-badge {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22C55E;
+            padding: 0.6rem 1.5rem;
+            border-radius: 25px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: inline-block;
+            margin-bottom: 2rem;
+            border: 2px solid rgba(34, 197, 94, 0.4);
+            animation: fadeInUp 0.8s ease-out;
+            box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+        }
+        .landing-hero h1 {
+            font-size: 4.5rem;
+            margin-bottom: 1.5rem;
+            letter-spacing: -2px;
+            animation: fadeInUp 0.8s ease-out 0.2s both;
+            text-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+        .landing-hero h1 span {
+            color: #22C55E;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        .landing-hero p {
+            font-size: 1.4rem;
+            margin-bottom: 3rem;
+            max-width: 650px;
+            opacity: 0.95;
+            line-height: 1.7;
+            animation: fadeInUp 0.8s ease-out 0.4s both;
+        }
+        .cta-buttons {
+            display: flex;
+            gap: 1.2rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            animation: fadeInUp 0.8s ease-out 0.6s both;
+        }
+        .btn-hero {
+            padding: 1.1rem 3rem;
+            font-size: 1.15rem;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: 700;
+            text-decoration: none;
+            display: inline-block;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-hero::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        .btn-hero:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        .btn-hero-primary {
+            background: #22C55E;
+            color: #fff;
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4);
+        }
+        .btn-hero-primary:hover {
+            background: #16A34A;
+            transform: translateY(-3px);
+            box-shadow: 0 6px 25px rgba(34, 197, 94, 0.5);
+        }
+        .btn-hero-secondary {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: 2px solid rgba(255,255,255,0.6);
+            backdrop-filter: blur(10px);
+        }
+        .btn-hero-secondary:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 25px rgba(255,255,255,0.2);
+        }
+
+        /* Stats Section */
+        .landing-stats {
+            background: #fff;
+            padding: 3rem 2rem;
+            display: flex;
+            justify-content: center;
+            gap: 4rem;
+            flex-wrap: wrap;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
+        }
+        .stat-item {
+            text-align: center;
+            animation: fadeIn 1s ease-out;
+        }
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #2563EB;
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        /* Features Section */
+        .landing-features {
+            padding: 5rem 2rem;
+            background: linear-gradient(180deg, #F9FAFB 0%, #FFFFFF 100%);
+        }
+        .features-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        .features-header h2 {
+            font-size: 2.5rem;
+            color: #1F2937;
+            margin-bottom: 1rem;
+        }
+        .features-header p {
+            color: #666;
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .features-grid {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2.5rem;
+        }
+        .feature-card {
+            background: #fff;
+            padding: 2.5rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid transparent;
+            animation: fadeInUp 0.6s ease-out both;
+        }
+        .feature-card:nth-child(1) { animation-delay: 0.1s; }
+        .feature-card:nth-child(2) { animation-delay: 0.2s; }
+        .feature-card:nth-child(3) { animation-delay: 0.3s; }
+        .feature-card:nth-child(4) { animation-delay: 0.4s; }
+        .feature-card:nth-child(5) { animation-delay: 0.5s; }
+        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+        .feature-card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.15);
+            border-color: rgba(37, 99, 235, 0.3);
+        }
+        .feature-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1.2rem;
+            display: inline-block;
+            animation: float 3s ease-in-out infinite;
+        }
+        .feature-card h3 {
+            color: #2563EB;
+            margin-bottom: 1rem;
+            font-size: 1.4rem;
+        }
+        .feature-card p {
+            color: #666;
+            line-height: 1.7;
+            font-size: 1.05rem;
+        }
+
+        /* Rating Categories Visualization */
+        .categories-section {
+            padding: 5rem 2rem;
+            background: linear-gradient(135deg, #EFF6FF 0%, #F9FAFB 100%);
+        }
+        .categories-container {
+            max-width: 900px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .categories-container h2 {
+            font-size: 2.5rem;
+            color: #1F2937;
+            margin-bottom: 1rem;
+        }
+        .categories-container > p {
+            color: #666;
+            font-size: 1.1rem;
+            margin-bottom: 3rem;
+        }
+        .category-bars {
+            background: #fff;
+            padding: 3rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        .category-bar {
+            margin-bottom: 2rem;
+            animation: slideInLeft 0.8s ease-out both;
+        }
+        .category-bar:nth-child(1) { animation-delay: 0.1s; }
+        .category-bar:nth-child(2) { animation-delay: 0.2s; }
+        .category-bar:nth-child(3) { animation-delay: 0.3s; }
+        .category-bar:nth-child(4) { animation-delay: 0.4s; }
+        .category-bar:nth-child(5) { animation-delay: 0.5s; }
+        .category-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: #374151;
+        }
+        .bar-container {
+            background: #E5E7EB;
+            height: 12px;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2563EB, #7C3AED);
+            border-radius: 10px;
+            transition: width 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fillBar 1.5s ease-out forwards;
+        }
+        @keyframes fillBar {
+            from { width: 0; }
+        }
+
+        .landing-footer {
+            background: linear-gradient(135deg, #1F2937 0%, #111827 100%);
+            color: rgba(255,255,255,0.85);
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+        .landing-footer p {
+            margin-bottom: 0.8rem;
+        }
+
+        @media (max-width: 768px) {
+            .landing-hero h1 { font-size: 3rem; }
+            .landing-hero p { font-size: 1.2rem; }
+            .btn-hero { padding: 1rem 2.2rem; font-size: 1.05rem; }
+            .landing-stats { gap: 2rem; }
+            .stat-number { font-size: 2.2rem; }
+            .features-header h2 { font-size: 2rem; }
+            .categories-container h2 { font-size: 2rem; }
+            .category-bars { padding: 2rem 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="landing-hero">
+        <div class="bosepo-badge">🧪 Built for BOSEPO - Bosnian Science Project Olympiad</div>
+        <h1>Rate<span>Ed</span></h1>
+        <p>The platform where students share honest reviews of their schools and universities. Help future students make informed decisions about their education.</p>
+        <div class="cta-buttons">
+            <a href="/login" class="btn-hero btn-hero-primary">Get Started</a>
+            <a href="/home" class="btn-hero btn-hero-secondary">Browse Institutions</a>
+        </div>
+    </div>
+
+    <div class="landing-stats">
+        <div class="stat-item">
+            <span class="stat-number" data-target="500">0</span>
+            <span class="stat-label">Reviews Shared</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number" data-target="50">0</span>
+            <span class="stat-label">Institutions</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number" data-target="200">0</span>
+            <span class="stat-label">Active Students</span>
+        </div>
+    </div>
+
+    <div class="categories-section">
+        <div class="categories-container">
+            <h2>5 Rating Categories</h2>
+            <p>Rate each institution across the metrics that matter most to students</p>
+            <div class="category-bars">
+                <div class="category-bar">
+                    <div class="category-label">
+                        <span>📚 Academic Rigor & Quality</span>
+                        <span>4.5/5</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: 90%;"></div>
+                    </div>
+                </div>
+                <div class="category-bar">
+                    <div class="category-label">
+                        <span>🏫 Infrastructure & Resources</span>
+                        <span>4.2/5</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: 84%;"></div>
+                    </div>
+                </div>
+                <div class="category-bar">
+                    <div class="category-label">
+                        <span>🎓 Student Life & Environment</span>
+                        <span>4.7/5</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: 94%;"></div>
+                    </div>
+                </div>
+                <div class="category-bar">
+                    <div class="category-label">
+                        <span>💼 Career & Future Support</span>
+                        <span>3.9/5</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: 78%;"></div>
+                    </div>
+                </div>
+                <div class="category-bar">
+                    <div class="category-label">
+                        <span>👨‍🏫 Academic Guidance & Staff</span>
+                        <span>4.3/5</span>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-fill" style="width: 86%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="landing-features">
+        <div class="features-header">
+            <h2>Everything You Need</h2>
+            <p>A comprehensive platform designed to help students share experiences and make better educational choices</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">⭐</div>
+                <h3>Rate Your School</h3>
+                <p>Share your experience across 5 key categories: Academic Quality, Infrastructure, Student Life, Career Support, and Guidance.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">✓</div>
+                <h3>Verified Reviews</h3>
+                <p>Get verified with your institutional email or photo proof. Only real students can rate their institutions.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🏆</div>
+                <h3>Earn Contribution Points</h3>
+                <p>Build your reputation by contributing valuable reviews, comments, and discussions. Climb the leaderboard!</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">💬</div>
+                <h3>Community Discussions</h3>
+                <p>Join conversations, ask questions, and connect with current and former students from institutions across Bosnia.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Compare Schools</h3>
+                <p>Filter by city, program, tuition, and ratings. Find the perfect institution that matches your needs and budget.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">🌐</div>
+                <h3>Bilingual Platform</h3>
+                <p>Switch seamlessly between English and Bosnian. Access content in your preferred language with one click.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="landing-footer">
+        <p><strong>RateEd</strong> &middot; A project created for the Bosnian Science Project Olympiad (BOSEPO)</p>
+        <p style="margin-top:0.5rem;font-size:0.95rem;opacity:0.75">&copy; 2026 RateEd. Empowering students to make informed educational choices.</p>
+    </div>
+
+    <script>
+        // Animated counter for stats
+        function animateCounter(el) {
+            const target = parseInt(el.dataset.target);
+            const duration = 2000;
+            const step = target / (duration / 16);
+            let current = 0;
+            const timer = setInterval(() => {
+                current += step;
+                if (current >= target) {
+                    el.textContent = target + '+';
+                    clearInterval(timer);
+                } else {
+                    el.textContent = Math.floor(current);
+                }
+            }, 16);
+        }
+
+        // Intersection Observer for stats animation
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const counters = entry.target.querySelectorAll('.stat-number');
+                    counters.forEach(counter => animateCounter(counter));
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.5 });
+
+        const statsSection = document.querySelector('.landing-stats');
+        if (statsSection) observer.observe(statsSection);
+    </script>
+</body>
+</html>
