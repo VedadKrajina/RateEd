@@ -9,6 +9,6 @@ var (
 		"image/webp": true,
 	}
 	institutionCreateThreshold int = 5
-	adminUsername               string = "vk15"
+	adminUsername               string = "admin"
 	uploadsDir                  string = "uploads"
 )
