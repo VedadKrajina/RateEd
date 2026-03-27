@@ -1519,6 +1519,7 @@ function initAdminPage() {
                             ? `<button class="btn btn-small" style="background:#22C55E;color:#fff" data-userid="${u.id}" onclick="adminUnban(${u.id}, this)">Unban</button>`
                             : `<button class="btn btn-small btn-destructive" data-userid="${u.id}" onclick="adminBan(${u.id}, '${escapeHtml(u.username)}', this)">Ban</button>`
                         }
+                        <button class="btn btn-small" style="background:#7F1D1D;color:#fff" data-userid="${u.id}" onclick="adminDeleteUser(${u.id}, '${escapeHtml(u.username)}')">Delete</button>
                     </div>
                 </div>
             `).join('');
@@ -1585,6 +1586,14 @@ function initAdminPage() {
             const data = await res.json();
             if (!res.ok) throw new Error(data.error);
             loadAdminUsers();
+        } catch (err) { alert(err.message); }
+    };
+
+    window.adminDeleteUser = async function(userId, username) {
+        if (!confirm(`Permanently delete "${username}"? This removes all their ratings, comments, and data. This cannot be undone.`)) return;
+        try {
+            await api('DELETE', `/api/admin/users/${userId}`);
+            document.getElementById(`admin-user-row-${userId}`)?.remove();
         } catch (err) { alert(err.message); }
     };
 

@@ -93,6 +93,7 @@ func main() {
 	r.HandleFunc("/api/admin/users/{id}/points", requireAdmin(handleAdminSetPoints)).Methods("PUT")
 	r.HandleFunc("/api/admin/verification-requests", requireAdmin(handleGetAllPendingVerifications)).Methods("GET")
 	r.HandleFunc("/api/admin/users/{id}/activity", requireAdmin(handleAdminGetUserActivity)).Methods("GET")
+	r.HandleFunc("/api/admin/users/{id}", requireAdmin(handleAdminDeleteUser)).Methods("DELETE")
 	r.HandleFunc("/api/admin/users/{id}/ban", requireAdmin(handleBanUser)).Methods("POST")
 	r.HandleFunc("/api/admin/users/{id}/ban", requireAdmin(handleUnbanUser)).Methods("DELETE")
 	r.HandleFunc("/api/admin/bans", requireAdmin(handleGetBannedUsers)).Methods("GET")

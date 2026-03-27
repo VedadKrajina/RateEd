@@ -1075,6 +1075,69 @@ func handleReviewVerificationRequest(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]string{"message": "request " + req.Status})
 }
 
+func handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	idStr := mux.Vars(r)["id"]
+	userID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid user id"})
+		return
+	}
+
+	var username string
+	db.QueryRow("SELECT username FROM users WHERE id = ?", userID).Scan(&username)
+	if username == adminUsername {
+		jsonResponse(w, 403, map[string]string{"error": "cannot delete admin"})
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		jsonResponse(w, 500, map[string]string{"error": "server error"})
+		return
+	}
+
+	// Detach child comments that reference this user's comments
+	tx.Exec("UPDATE discussion_comments SET parent_id = NULL WHERE parent_id IN (SELECT id FROM discussion_comments WHERE user_id = ?)", userID)
+	tx.Exec("UPDATE verification_requests SET reviewed_by = NULL WHERE reviewed_by = ?", userID)
+	// Delete all user-owned data
+	tx.Exec("DELETE FROM rating_votes WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM comment_votes WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM user_mutes WHERE user_id = ? OR muted_by = ?", userID, userID)
+	tx.Exec("DELETE FROM user_bans WHERE user_id = ? OR banned_by = ?", userID, userID)
+	tx.Exec("DELETE FROM verification_requests WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM user_verifications WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM education_history WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM institution_photos WHERE uploaded_by = ?", userID)
+	tx.Exec("DELETE FROM discussion_comments WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM ratings WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM contribution_events WHERE user_id = ?", userID)
+	tx.Exec("DELETE FROM user_profiles WHERE user_id = ?", userID)
+	// Reassign institutions they created to admin
+	var adminID int64
+	db.QueryRow("SELECT id FROM users WHERE username = ?", adminUsername).Scan(&adminID)
+	if adminID > 0 {
+		tx.Exec("UPDATE topics SET created_by = ? WHERE created_by = ?", adminID, userID)
+	}
+
+	if _, err = tx.Exec("DELETE FROM users WHERE id = ?", userID); err != nil {
+		tx.Rollback()
+		jsonResponse(w, 500, map[string]string{"error": "failed to delete user"})
+		return
+	}
+	tx.Commit()
+
+	// Invalidate any active sessions for this user
+	sessionsMu.Lock()
+	for token, sd := range sessions {
+		if sd.UserID == userID {
+			delete(sessions, token)
+		}
+	}
+	sessionsMu.Unlock()
+
+	jsonResponse(w, 200, map[string]string{"message": "user deleted"})
+}
+
 // ==================== Admin Ban Handlers ====================
 
 func handleBanUser(w http.ResponseWriter, r *http.Request) {
