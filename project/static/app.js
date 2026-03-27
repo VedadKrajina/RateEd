@@ -24,12 +24,16 @@ function renderStars(avg, count) {
 }
 
 function timeAgo(dateStr) {
-    const d = new Date(dateStr + 'Z');
+    if (!dateStr) return '';
+    const str = (dateStr.includes('Z') || dateStr.includes('+')) ? dateStr : dateStr + 'Z';
+    const d = new Date(str);
     const diff = (Date.now() - d.getTime()) / 1000;
-    if (diff < 60) return 'just now';
-    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
-    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
-    return Math.floor(diff / 86400) + 'd ago';
+    if (isNaN(diff)) return '';
+    const tr = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+    if (diff < 60) return tr.justNow;
+    if (diff < 3600) return Math.floor(diff / 60) + tr.minutesAgo;
+    if (diff < 86400) return Math.floor(diff / 3600) + tr.hoursAgo;
+    return Math.floor(diff / 86400) + tr.daysAgo;
 }
 
 function debounce(fn, ms) {
@@ -87,6 +91,28 @@ const TRANSLATIONS = {
         searchPlaceholder: 'Search institutions...',
         addInstitution: 'Add Institution',
         createInstitution: 'Add New Institution',
+        search: 'Search', filter: 'Filter', clear: 'Clear',
+        topSchools: 'Top Schools',
+        noInstitutionsFound: 'No institutions found. Be the first to add one!',
+        noSchoolsYet: 'No schools yet',
+        failedToLoad: 'Failed to load',
+        noContributorsYet: 'No contributors yet',
+        moderator: 'Moderator',
+        academicRigour: 'Academic Rigor & Quality',
+        infrastructureResources: 'Infrastructure & Resources',
+        studentLife: 'Student Life & Environment',
+        careerSupport: 'Career & Future Support',
+        guidanceStaff: 'Academic Guidance & Staff',
+        noDiscussionYet: 'No discussion yet. Start the conversation!',
+        failedLoadDiscussion: 'Failed to load discussion.',
+        writeReply: 'Write a reply...',
+        postReply: 'Post Reply',
+        seeBreakdown: 'See breakdown',
+        ratingSubmitted: 'Rating submitted!',
+        pleaseRateAll: 'Please rate all 5 categories',
+        present: 'Present',
+        shareExperience: 'Share your experience (optional)...',
+        justNow: 'just now', minutesAgo: 'm ago', hoursAgo: 'h ago', daysAgo: 'd ago',
     },
     bs: {
         logout: 'Odjava', login: 'Prijava', cancel: 'Odustani',
@@ -115,6 +141,28 @@ const TRANSLATIONS = {
         searchPlaceholder: 'Pretraži institucije...',
         addInstitution: 'Dodaj instituciju',
         createInstitution: 'Dodaj novu instituciju',
+        search: 'Pretraži', filter: 'Filtriraj', clear: 'Očisti',
+        topSchools: 'Najbolje škole',
+        noInstitutionsFound: 'Nema institucija. Budite prvi koji dodaje!',
+        noSchoolsYet: 'Nema škola još',
+        failedToLoad: 'Greška pri učitavanju',
+        noContributorsYet: 'Nema doprinosa još',
+        moderator: 'Moderator',
+        academicRigour: 'Akademski rigor i kvalitet',
+        infrastructureResources: 'Infrastruktura i resursi',
+        studentLife: 'Studentski život i okruženje',
+        careerSupport: 'Karijera i podrška',
+        guidanceStaff: 'Akademsko vođstvo i osoblje',
+        noDiscussionYet: 'Nema diskusije. Pokrenite razgovor!',
+        failedLoadDiscussion: 'Greška pri učitavanju diskusije.',
+        writeReply: 'Napišite odgovor...',
+        postReply: 'Objavi odgovor',
+        seeBreakdown: 'Pogledaj detalje',
+        ratingSubmitted: 'Ocjena poslana!',
+        pleaseRateAll: 'Molimo ocijenite sve 5 kategorija',
+        present: 'Sadašnjost',
+        shareExperience: 'Podijelite iskustvo (opciono)...',
+        justNow: 'upravo sada', minutesAgo: ' min', hoursAgo: ' h', daysAgo: ' d',
     }
 };
 
@@ -301,7 +349,7 @@ function initHomePage() {
         const url = '/api/institutions' + (qs ? '?' + qs : '');
         const items = await api('GET', url);
         if (items.length === 0) {
-            instList.innerHTML = '<div class="empty-state">No institutions found. Be the first to add one!</div>';
+            instList.innerHTML = `<div class="empty-state">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).noInstitutionsFound}</div>`;
             return;
         }
         instList.innerHTML = items.map(t => {
@@ -378,14 +426,14 @@ function initHomePage() {
             const url = type ? `/api/schools/rankings?type=${encodeURIComponent(type)}` : '/api/schools/rankings';
             const rankings = await api('GET', url);
             if (rankings.length === 0) {
-                container.innerHTML = '<div class="empty-state" style="padding:1rem;font-size:0.9rem">No schools yet</div>';
+                container.innerHTML = `<div class="empty-state" style="padding:1rem;font-size:0.9rem">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).noSchoolsYet}</div>`;
                 return;
             }
             container.innerHTML = rankings.map((s, i) => `
                 <div class="school-ranking-entry">
                     <span class="sr-name"><span style="color:#888;margin-right:0.3rem">${i + 1}.</span><a href="/institution/${s.id}">${escapeHtml(s.title)}</a></span>
                     <span class="sr-right">
-                        <span class="sr-points">${s.total_points} pts</span>
+                        <span class="sr-points">${s.avg_rating > 0 ? s.avg_rating.toFixed(1) + '★' : '—'} <span style="color:#aaa;font-size:0.75rem">(${s.num_ratings})</span></span>
                     </span>
                 </div>
             `).join('');
@@ -446,12 +494,12 @@ function initInstitutionPage() {
             const entries = data.entries || [];
             currentModeratorId = data.moderator_id || null;
             if (entries.length === 0) {
-                container.innerHTML = '<div class="empty-state" style="padding:1rem;font-size:0.9rem">No contributors yet</div>';
+                container.innerHTML = `<div class="empty-state" style="padding:1rem;font-size:0.9rem">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).noContributorsYet}</div>`;
                 return;
             }
             const isMod = currentUser && (currentModeratorId === currentUser.id || currentUser.is_admin);
             container.innerHTML = entries.map((e, i) => {
-                const modBadge = (e.user_id === currentModeratorId) ? '<span class="moderator-badge">Moderator</span>' : '';
+                const modBadge = (e.user_id === currentModeratorId) ? `<span class="moderator-badge">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).moderator}</span>` : '';
                 const muteBtn = (isMod && e.user_id !== currentUser.id)
                     ? `<button class="mute-btn" data-userid="${e.user_id}" data-username="${escapeHtml(e.username)}" title="Mute user">&#128263;</button>`
                     : '';
@@ -730,12 +778,13 @@ function initInstitutionPage() {
                 ratingsList.innerHTML = `<div class="empty-state">${noRatingsText}</div>`;
             } else {
                 ratingsList.innerHTML = t.ratings.map(r => {
+                    const tr = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
                     const categoryLabels = {
-                        academic: 'Academic Rigor & Quality',
-                        infrastructure: 'Infrastructure & Resources',
-                        student_life: 'Student Life & Environment',
-                        career: 'Career & Future Support',
-                        guidance: 'Academic Guidance & Staff'
+                        academic: tr.academicRigour,
+                        infrastructure: tr.infrastructureResources,
+                        student_life: tr.studentLife,
+                        career: tr.careerSupport,
+                        guidance: tr.guidanceStaff
                     };
                     const catScores = {
                         academic: r.score_academic,
@@ -748,7 +797,7 @@ function initInstitutionPage() {
                     let breakdownHtml = '';
                     if (hasBreakdown) {
                         breakdownHtml = `
-                            <button class="breakdown-toggle-btn" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">See breakdown</button>
+                            <button class="breakdown-toggle-btn" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).seeBreakdown}</button>
                             <div class="rating-breakdown" style="display:none">
                                 ${Object.entries(catScores).map(([key, val]) => `
                                     <div class="breakdown-row">
@@ -801,7 +850,7 @@ function initInstitutionPage() {
         const requiredCats = ['academic', 'infrastructure', 'student_life', 'career', 'guidance'];
         const missing = requiredCats.filter(c => !categoryScores[c]);
         if (missing.length > 0) {
-            rateError.textContent = 'Please rate all 5 categories';
+            rateError.textContent = (TRANSLATIONS[currentLang]||TRANSLATIONS.en).pleaseRateAll;
             return;
         }
 
@@ -814,7 +863,7 @@ function initInstitutionPage() {
                 score_guidance: categoryScores.guidance,
                 comment: rateComment.value.trim()
             });
-            rateSuccess.textContent = 'Rating submitted!';
+            rateSuccess.textContent = (TRANSLATIONS[currentLang]||TRANSLATIONS.en).ratingSubmitted;
             rateComment.value = '';
             requiredCats.forEach(c => delete categoryScores[c]);
             document.querySelectorAll('.star-widget[data-category] input').forEach(i => i.checked = false);
@@ -1001,7 +1050,7 @@ function initInstitutionPage() {
         try {
             const comments = await api('GET', `/api/institutions/${instId}/discussion`);
             if (comments.length === 0) {
-                discussionList.innerHTML = '<div class="empty-state">No discussion yet. Start the conversation!</div>';
+                discussionList.innerHTML = `<div class="empty-state">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).noDiscussionYet}</div>`;
                 return;
             }
             discussionList.innerHTML = renderCommentTree(comments);
@@ -1030,7 +1079,7 @@ function initInstitutionPage() {
         function renderNode(node, isReply) {
             const cls = isReply ? 'discussion-comment discussion-reply' : 'discussion-comment';
             const isOwn = currentUser && node.user_id === currentUser.id;
-            const modBadge = (node.user_id === currentModeratorId) ? '<span class="moderator-badge">Moderator</span>' : '';
+            const modBadge = (node.user_id === currentModeratorId) ? `<span class="moderator-badge">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).moderator}</span>` : '';
             const pointsBadge = `<span class="comment-points">${node.contribution_points} pts</span>`;
             const deleteBtn = isOwn ? `<button class="comment-delete-btn" data-id="${node.id}" title="Delete your comment">&times;</button>` : '';
             const modDeleteBtn = (isMod && !isOwn) ? `<button class="comment-delete-btn mod-delete" data-id="${node.id}" title="Delete as moderator">&times;</button>` : '';
@@ -1060,8 +1109,8 @@ function initInstitutionPage() {
                     </div>
                     <button class="reply-btn" data-id="${node.id}">Reply</button>
                     <div class="inline-reply-form" id="reply-form-${node.id}">
-                        <textarea placeholder="Write a reply..." id="reply-text-${node.id}"></textarea>
-                        <button class="btn btn-accent btn-small submit-reply-btn" data-id="${node.id}">Post Reply</button>
+                        <textarea placeholder="${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).writeReply}" id="reply-text-${node.id}"></textarea>
+                        <button class="btn btn-accent btn-small submit-reply-btn" data-id="${node.id}">${(TRANSLATIONS[currentLang]||TRANSLATIONS.en).postReply}</button>
                     </div>
             `;
             if (node.children.length > 0) {

@@ -29,7 +29,7 @@
             <div class="main-content">
                 <div class="search-bar">
                     <input type="text" id="search-input" placeholder="Search institutions..." data-i18n-placeholder="searchPlaceholder">
-                    <button class="btn btn-accent" id="search-btn">Search</button>
+                    <button class="btn btn-accent" id="search-btn" data-i18n="search">Search</button>
                 </div>
 
                 <div class="filter-panel">
@@ -51,8 +51,8 @@
                         </select>
                         <input type="number" id="filter-tuition-min" placeholder="Tuition min ($)" class="filter-input" min="0">
                         <input type="number" id="filter-tuition-max" placeholder="Tuition max ($)" class="filter-input" min="0">
-                        <button class="btn btn-accent btn-small" id="filter-btn">Filter</button>
-                        <button class="btn btn-small" id="filter-clear-btn" style="background:#E5E7EB;color:#555">Clear</button>
+                        <button class="btn btn-accent btn-small" id="filter-btn" data-i18n="filter">Filter</button>
+                        <button class="btn btn-small" id="filter-clear-btn" style="background:#E5E7EB;color:#555" data-i18n="clear">Clear</button>
                     </div>
                 </div>
 
@@ -95,7 +95,7 @@
 
             <div class="sidebar">
                 <div class="sidebar-card">
-                    <h3>Top Schools</h3>
+                    <h3 data-i18n="topSchools">Top Schools</h3>
                     <select class="filter-select" id="school-type-filter">
                         <option value="">All Types</option>
                         <option value="university">University</option>
