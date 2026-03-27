@@ -98,6 +98,9 @@ func main() {
 	r.HandleFunc("/api/admin/bans", requireAdmin(handleGetBannedUsers)).Methods("GET")
 
 	// SEO
+	r.HandleFunc("/google8866962a8ef7ee77.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "google8866962a8ef7ee77.html")
+	})
 	r.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: https://rateed.org/sitemap.xml\n")
