@@ -98,6 +98,11 @@ func main() {
 	r.HandleFunc("/api/admin/users/{id}/ban", requireAdmin(handleUnbanUser)).Methods("DELETE")
 	r.HandleFunc("/api/admin/bans", requireAdmin(handleGetBannedUsers)).Methods("GET")
 
+	// Research paper redirect
+	r.HandleFunc("/rp", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://docs.google.com/document/d/1gwKGD3XqOnji0wvL7JhIolKbWSMFKghq/edit?usp=sharing&ouid=115125277023426725680&rtpof=true&sd=true", http.StatusFound)
+	})
+
 	// SEO
 	r.HandleFunc("/google8866962a8ef7ee77.html", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "google8866962a8ef7ee77.html")
