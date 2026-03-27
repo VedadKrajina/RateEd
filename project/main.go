@@ -1,13 +1,27 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gorilla/mux"
 )
+
+type InstitutionPageData struct {
+	ID          string
+	Name        string
+	Description string
+	Type        string
+	City        string
+	AvgRating   string
+	RatingCount int
+	JSONLD      template.HTML
+}
 
 var templates *template.Template
 
@@ -55,6 +69,8 @@ func main() {
 	r.HandleFunc("/api/institutions/{id}/discussion", requireAuth(handlePostComment)).Methods("POST")
 	r.HandleFunc("/api/institutions/{id}/discussion/{commentId}", requireAuth(handleDeleteComment)).Methods("DELETE")
 	r.HandleFunc("/api/institutions/{id}/discussion/{commentId}/mod", requireAuth(handleModDeleteComment)).Methods("DELETE")
+	r.HandleFunc("/api/institutions/{id}/discussion/{commentId}/vote", requireAuth(handleVoteComment)).Methods("POST")
+	r.HandleFunc("/api/institutions/{id}/ratings/{ratingId}/vote", requireAuth(handleVoteRating)).Methods("POST")
 	r.HandleFunc("/api/institutions/{id}/mute", requireAuth(handleMuteUser)).Methods("POST")
 
 	// School rankings
@@ -81,6 +97,13 @@ func main() {
 	r.HandleFunc("/api/admin/users/{id}/ban", requireAdmin(handleUnbanUser)).Methods("DELETE")
 	r.HandleFunc("/api/admin/bans", requireAdmin(handleGetBannedUsers)).Methods("GET")
 
+	// SEO
+	r.HandleFunc("/robots.txt", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		fmt.Fprint(w, "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\n\nSitemap: https://rateed.org/sitemap.xml\n")
+	})
+	r.HandleFunc("/sitemap.xml", handleSitemap)
+
 	// Static files and uploads
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir))))
@@ -96,7 +119,46 @@ func main() {
 		templates.ExecuteTemplate(w, "index.html", nil)
 	})
 	r.HandleFunc("/institution/{id}", func(w http.ResponseWriter, r *http.Request) {
-		templates.ExecuteTemplate(w, "institution.html", nil)
+		vars := mux.Vars(r)
+		id := vars["id"]
+
+		var data InstitutionPageData
+		data.ID = id
+
+		var avgRating float64
+		err := db.QueryRow(`
+			SELECT t.title, COALESCE(t.description,''), COALESCE(t.institution_type,''), COALESCE(t.city,''),
+			       COALESCE(AVG((r.score_academic+r.score_infrastructure+r.score_student_life+r.score_career+r.score_guidance)/5.0),0.0),
+			       COUNT(r.id)
+			FROM topics t
+			LEFT JOIN ratings r ON r.topic_id = t.id
+			WHERE t.id = ?
+			GROUP BY t.id
+		`, id).Scan(&data.Name, &data.Description, &data.Type, &data.City, &avgRating, &data.RatingCount)
+		if err == nil {
+			if data.RatingCount > 0 {
+				data.AvgRating = fmt.Sprintf("%.1f", avgRating)
+			}
+			ld := map[string]interface{}{
+				"@context": "https://schema.org",
+				"@type":    "EducationalOrganization",
+				"name":     data.Name,
+				"url":      "https://rateed.org/institution/" + id,
+			}
+			if data.City != "" {
+				ld["address"] = map[string]string{"@type": "PostalAddress", "addressLocality": data.City}
+			}
+			if data.RatingCount > 0 {
+				ld["aggregateRating"] = map[string]string{
+					"@type": "AggregateRating", "ratingValue": data.AvgRating,
+					"bestRating": "5", "worstRating": "1", "ratingCount": strconv.Itoa(data.RatingCount),
+				}
+			}
+			if b, jsonErr := json.MarshalIndent(ld, "", "  "); jsonErr == nil {
+				data.JSONLD = template.HTML(b)
+			}
+		}
+		templates.ExecuteTemplate(w, "institution.html", data)
 	})
 	r.HandleFunc("/profile/{username}", func(w http.ResponseWriter, r *http.Request) {
 		templates.ExecuteTemplate(w, "profile.html", nil)

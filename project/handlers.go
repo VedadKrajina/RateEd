@@ -196,7 +196,14 @@ func handleGetInstitution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inst, err := getInstitutionDetail(id)
+	viewerID := int64(0)
+	isVerified := false
+	if sd, ok := getSessionFromRequest(r); ok {
+		viewerID = sd.UserID
+		isVerified, _ = isUserVerifiedForInstitution(sd.UserID, id)
+	}
+
+	inst, err := getInstitutionDetail(id, viewerID)
 	if err != nil {
 		jsonResponse(w, 404, map[string]string{"error": "institution not found"})
 		return
@@ -204,11 +211,6 @@ func handleGetInstitution(w http.ResponseWriter, r *http.Request) {
 
 	if inst.Ratings == nil {
 		inst.Ratings = []RatingDetail{}
-	}
-
-	isVerified := false
-	if sd, ok := getSessionFromRequest(r); ok {
-		isVerified, _ = isUserVerifiedForInstitution(sd.UserID, id)
 	}
 
 	type InstResponse struct {
@@ -336,7 +338,12 @@ func handleGetDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	comments, err := getInstitutionDiscussion(instID)
+	viewerID := int64(0)
+	if sd, ok := getSessionFromRequest(r); ok {
+		viewerID = sd.UserID
+	}
+
+	comments, err := getInstitutionDiscussion(instID, viewerID)
 	if err != nil {
 		jsonResponse(w, 500, map[string]string{"error": "server error"})
 		return
@@ -806,7 +813,7 @@ func handleUpdateInstitutionMeta(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch current title if not provided
 	if strings.TrimSpace(req.Title) == "" {
-		inst, err := getInstitutionDetail(instID)
+		inst, err := getInstitutionDetail(instID, 0)
 		if err == nil {
 			req.Title = inst.Title
 		}
@@ -1197,6 +1204,72 @@ func handleMuteUser(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, 200, map[string]string{"message": "user muted"})
 }
 
+// ==================== Karma Vote Handlers ====================
+
+func handleVoteRating(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	ratingID, err := strconv.ParseInt(vars["ratingId"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid rating id"})
+		return
+	}
+
+	var req struct {
+		Vote int `json:"vote"` // 1, -1, or 0 to remove
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.Vote != 1 && req.Vote != -1 && req.Vote != 0 {
+		jsonResponse(w, 400, map[string]string{"error": "vote must be 1, -1, or 0"})
+		return
+	}
+
+	if err := voteOnRating(ratingID, userID, req.Vote); err != nil {
+		if strings.Contains(err.Error(), "own rating") {
+			jsonResponse(w, 403, map[string]string{"error": err.Error()})
+		} else {
+			jsonResponse(w, 500, map[string]string{"error": "server error"})
+		}
+		return
+	}
+	jsonResponse(w, 200, map[string]string{"message": "vote recorded"})
+}
+
+func handleVoteComment(w http.ResponseWriter, r *http.Request) {
+	userID, _ := getUserIDFromRequest(r)
+	vars := mux.Vars(r)
+	commentID, err := strconv.ParseInt(vars["commentId"], 10, 64)
+	if err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid comment id"})
+		return
+	}
+
+	var req struct {
+		Vote int `json:"vote"` // 1, -1, or 0 to remove
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonResponse(w, 400, map[string]string{"error": "invalid request"})
+		return
+	}
+	if req.Vote != 1 && req.Vote != -1 && req.Vote != 0 {
+		jsonResponse(w, 400, map[string]string{"error": "vote must be 1, -1, or 0"})
+		return
+	}
+
+	if err := voteOnComment(commentID, userID, req.Vote); err != nil {
+		if strings.Contains(err.Error(), "own comment") {
+			jsonResponse(w, 403, map[string]string{"error": err.Error()})
+		} else {
+			jsonResponse(w, 500, map[string]string{"error": "server error"})
+		}
+		return
+	}
+	jsonResponse(w, 200, map[string]string{"message": "vote recorded"})
+}
+
 // ==================== Stats Handlers ====================
 
 func handleGetStats(w http.ResponseWriter, r *http.Request) {
@@ -1211,4 +1284,41 @@ func handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"total_institutions": totalInstitutions,
 		"total_users":        totalUsers,
 	})
+}
+
+func handleSitemap(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id FROM topics ORDER BY id")
+	if err != nil {
+		http.Error(w, "Error generating sitemap", 500)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://rateed.org/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://rateed.org/home</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>`)
+
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			continue
+		}
+		fmt.Fprintf(w, `
+  <url>
+    <loc>https://rateed.org/institution/%d</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>`, id)
+	}
+	fmt.Fprint(w, "\n</urlset>")
 }

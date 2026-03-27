@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"math"
 	"os"
 	"strings"
 
@@ -163,6 +162,27 @@ func initDB(dataDir string) {
 		reason TEXT NOT NULL DEFAULT '',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
+
+	// Backfill score as precise float from category columns (fixes old rounded integers)
+	db.Exec(`UPDATE ratings SET score = CAST(score_academic + score_infrastructure + score_student_life + score_career + score_guidance AS REAL) / 5.0 WHERE score_academic > 0`)
+
+	// Karma voting tables
+	db.Exec(`CREATE TABLE IF NOT EXISTS rating_votes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		rating_id INTEGER NOT NULL REFERENCES ratings(id),
+		user_id INTEGER NOT NULL REFERENCES users(id),
+		vote INTEGER NOT NULL CHECK(vote IN (1, -1)),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(rating_id, user_id)
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS comment_votes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		comment_id INTEGER NOT NULL REFERENCES discussion_comments(id),
+		user_id INTEGER NOT NULL REFERENCES users(id),
+		vote INTEGER NOT NULL CHECK(vote IN (1, -1)),
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(comment_id, user_id)
+	)`)
 }
 
 func createUser(username, passwordHash string) (int64, error) {
@@ -298,18 +318,20 @@ type InstitutionDetail struct {
 }
 
 type RatingDetail struct {
-	ID                   int64  `json:"id"`
-	UserID               int64  `json:"user_id"`
-	Username             string `json:"username"`
-	Score                int    `json:"score"`
-	ScoreAcademic        int    `json:"score_academic"`
-	ScoreInfrastructure  int    `json:"score_infrastructure"`
-	ScoreStudentLife     int    `json:"score_student_life"`
-	ScoreCareer          int    `json:"score_career"`
-	ScoreGuidance        int    `json:"score_guidance"`
-	Comment              string `json:"comment"`
-	CreatedAt            string `json:"created_at"`
-	IsVerified           bool   `json:"is_verified"`
+	ID                  int64   `json:"id"`
+	UserID              int64   `json:"user_id"`
+	Username            string  `json:"username"`
+	Score               float64 `json:"score"`
+	ScoreAcademic       int     `json:"score_academic"`
+	ScoreInfrastructure int     `json:"score_infrastructure"`
+	ScoreStudentLife    int     `json:"score_student_life"`
+	ScoreCareer         int     `json:"score_career"`
+	ScoreGuidance       int     `json:"score_guidance"`
+	Comment             string  `json:"comment"`
+	CreatedAt           string  `json:"created_at"`
+	IsVerified          bool    `json:"is_verified"`
+	NetVotes            int     `json:"net_votes"`
+	UserVote            int     `json:"user_vote"` // 1, -1, or 0 for the current viewer
 }
 
 type InstitutionFilter struct {
@@ -407,7 +429,7 @@ func updateInstitutionMeta(instID int64, title, emailDomain, city, ownership, pr
 	return err
 }
 
-func getInstitutionDetail(instID int64) (*InstitutionDetail, error) {
+func getInstitutionDetail(instID int64, viewerID int64) (*InstitutionDetail, error) {
 	t := &InstitutionDetail{ID: instID}
 	err := db.QueryRow(`
 		SELECT t.title, COALESCE(t.institution_type, ''), COALESCE(t.description, ''),
@@ -438,13 +460,15 @@ func getInstitutionDetail(instID int64) (*InstitutionDetail, error) {
 		SELECT r.id, r.user_id, u.username, r.score,
 			r.score_academic, r.score_infrastructure, r.score_student_life, r.score_career, r.score_guidance,
 			r.comment, r.created_at,
-			CASE WHEN v.id IS NOT NULL THEN 1 ELSE 0 END AS is_verified
+			CASE WHEN v.id IS NOT NULL THEN 1 ELSE 0 END AS is_verified,
+			COALESCE((SELECT SUM(vote) FROM rating_votes WHERE rating_id = r.id), 0) AS net_votes,
+			COALESCE((SELECT vote FROM rating_votes WHERE rating_id = r.id AND user_id = ?), 0) AS user_vote
 		FROM ratings r
 		JOIN users u ON r.user_id = u.id
 		LEFT JOIN user_verifications v ON v.user_id = r.user_id AND v.institution_id = r.topic_id
 		WHERE r.topic_id = ?
-		ORDER BY is_verified DESC, r.created_at DESC
-	`, instID)
+		ORDER BY net_votes DESC, is_verified DESC, r.created_at DESC
+	`, viewerID, instID)
 	if err != nil {
 		return nil, err
 	}
@@ -454,7 +478,7 @@ func getInstitutionDetail(instID int64) (*InstitutionDetail, error) {
 		var r RatingDetail
 		if err := rows.Scan(&r.ID, &r.UserID, &r.Username, &r.Score,
 			&r.ScoreAcademic, &r.ScoreInfrastructure, &r.ScoreStudentLife, &r.ScoreCareer, &r.ScoreGuidance,
-			&r.Comment, &r.CreatedAt, &r.IsVerified); err != nil {
+			&r.Comment, &r.CreatedAt, &r.IsVerified, &r.NetVotes, &r.UserVote); err != nil {
 			return nil, err
 		}
 		t.Ratings = append(t.Ratings, r)
@@ -472,8 +496,7 @@ func upsertRating(topicID, userID int64, academic, infrastructure, studentLife, 
 	}
 	isNew := existing == 0
 
-	avg := math.Round(float64(academic+infrastructure+studentLife+career+guidance) / 5.0)
-	score := int(avg)
+	score := float64(academic+infrastructure+studentLife+career+guidance) / 5.0
 
 	_, err = db.Exec(`
 		INSERT INTO ratings (topic_id, user_id, score, score_academic, score_infrastructure, score_student_life, score_career, score_guidance, comment)
@@ -547,18 +570,22 @@ type DiscussionComment struct {
 	Content            string `json:"content"`
 	CreatedAt          string `json:"created_at"`
 	ContributionPoints int    `json:"contribution_points"`
+	NetVotes           int    `json:"net_votes"`
+	UserVote           int    `json:"user_vote"` // 1, -1, or 0 for the current viewer
 }
 
-func getInstitutionDiscussion(instID int64) ([]DiscussionComment, error) {
+func getInstitutionDiscussion(instID int64, viewerID int64) ([]DiscussionComment, error) {
 	rows, err := db.Query(`
 		SELECT dc.id, dc.user_id, u.username, dc.parent_id, dc.content, dc.created_at,
-			COALESCE(p.contribution_points, 0) AS contribution_points
+			COALESCE(p.contribution_points, 0) AS contribution_points,
+			COALESCE((SELECT SUM(vote) FROM comment_votes WHERE comment_id = dc.id), 0) AS net_votes,
+			COALESCE((SELECT vote FROM comment_votes WHERE comment_id = dc.id AND user_id = ?), 0) AS user_vote
 		FROM discussion_comments dc
 		JOIN users u ON dc.user_id = u.id
 		LEFT JOIN user_profiles p ON p.user_id = dc.user_id
 		WHERE dc.institution_id = ?
-		ORDER BY contribution_points DESC, dc.created_at ASC
-	`, instID)
+		ORDER BY net_votes DESC, dc.created_at ASC
+	`, viewerID, instID)
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +594,7 @@ func getInstitutionDiscussion(instID int64) ([]DiscussionComment, error) {
 	var comments []DiscussionComment
 	for rows.Next() {
 		var c DiscussionComment
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Username, &c.ParentID, &c.Content, &c.CreatedAt, &c.ContributionPoints); err != nil {
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Username, &c.ParentID, &c.Content, &c.CreatedAt, &c.ContributionPoints, &c.NetVotes, &c.UserVote); err != nil {
 			return nil, err
 		}
 		comments = append(comments, c)
@@ -667,11 +694,17 @@ func deleteCommentAndEvents(commentID int64) error {
 	// Delete contribution events for child comments
 	db.Exec(`DELETE FROM contribution_events WHERE reference_id IN (SELECT id FROM discussion_comments WHERE parent_id = ?)`, commentID)
 
+	// Delete votes on child comments
+	db.Exec(`DELETE FROM comment_votes WHERE comment_id IN (SELECT id FROM discussion_comments WHERE parent_id = ?)`, commentID)
+
 	// Delete child comments
 	db.Exec("DELETE FROM discussion_comments WHERE parent_id = ?", commentID)
 
 	// Delete contribution events for this comment
 	db.Exec("DELETE FROM contribution_events WHERE reference_id = ?", commentID)
+
+	// Delete votes on this comment
+	db.Exec("DELETE FROM comment_votes WHERE comment_id = ?", commentID)
 
 	// Delete the comment itself
 	db.Exec("DELETE FROM discussion_comments WHERE id = ?", commentID)
@@ -749,11 +782,23 @@ func recalculateContributionPoints(userID int64) error {
 	if err := ensureUserProfile(userID); err != nil {
 		return err
 	}
+	// Points = base activity events + karma from votes received on ratings + karma from votes received on comments
+	// Upvote on rating: +8, downvote on rating: -4
+	// Upvote on comment: +5, downvote on comment: -3
 	_, err := db.Exec(`
 		UPDATE user_profiles SET contribution_points = (
 			SELECT COALESCE(SUM(points), 0) FROM contribution_events WHERE user_id = ?
-		) WHERE user_id = ?
-	`, userID, userID)
+		) + (
+			SELECT COALESCE(SUM(CASE WHEN rv.vote = 1 THEN 8 ELSE -4 END), 0)
+			FROM rating_votes rv JOIN ratings r ON rv.rating_id = r.id
+			WHERE r.user_id = ?
+		) + (
+			SELECT COALESCE(SUM(CASE WHEN cv.vote = 1 THEN 5 ELSE -3 END), 0)
+			FROM comment_votes cv JOIN discussion_comments dc ON cv.comment_id = dc.id
+			WHERE dc.user_id = ?
+		)
+		WHERE user_id = ?
+	`, userID, userID, userID, userID)
 	return err
 }
 
@@ -1171,15 +1216,15 @@ func isUserVerifiedForInstitution(userID, instID int64) (bool, error) {
 
 func getRankTier(points int) string {
 	switch {
-	case points >= 175:
+	case points >= 1000:
 		return "Legend"
-	case points >= 150:
+	case points >= 750:
 		return "Emerald"
-	case points >= 125:
+	case points >= 500:
 		return "Diamond"
-	case points >= 100:
+	case points >= 300:
 		return "Gold"
-	case points >= 75:
+	case points >= 150:
 		return "Silver"
 	case points >= 50:
 		return "Bronze"
@@ -1230,27 +1275,37 @@ func getSchoolLeaderboard(instID int64) ([]SchoolUserRank, error) {
 }
 
 type SchoolRanking struct {
-	ID              int64  `json:"id"`
-	Title           string `json:"title"`
-	InstitutionType string `json:"institution_type"`
-	TotalPoints     int    `json:"total_points"`
+	ID              int64   `json:"id"`
+	Title           string  `json:"title"`
+	InstitutionType string  `json:"institution_type"`
+	AvgRating       float64 `json:"avg_rating"`
+	NumRatings      int     `json:"num_ratings"`
+	BayesianScore   float64 `json:"bayesian_score"`
 }
 
+// getTopSchools ranks institutions by Bayesian average:
+// (prior_mean * prior_weight + sum_of_scores) / (prior_weight + num_ratings)
+// This prevents institutions with very few ratings from dominating the top.
 func getTopSchools(institutionType string) ([]SchoolRanking, error) {
-	query := `
+	const priorMean = 3.0   // assumed average for an unrated institution
+	const priorWeight = 5.0 // equivalent to 5 "ghost" ratings at the prior mean
+
+	query := fmt.Sprintf(`
 		SELECT t.id, t.title, COALESCE(t.institution_type, ''),
-			(SELECT COUNT(*) FROM ratings WHERE topic_id = t.id) * 25 +
-			(SELECT COUNT(*) FROM discussion_comments WHERE institution_id = t.id) * 12
-			AS total_points
+			COALESCE(AVG(r.score), 0) AS avg_rating,
+			COUNT(r.id) AS num_ratings,
+			(%g * %g + COALESCE(SUM(r.score), 0)) / (%g + COUNT(r.id)) AS bayesian_score
 		FROM topics t
-	`
+		LEFT JOIN ratings r ON r.topic_id = t.id
+	`, priorMean, priorWeight, priorWeight)
+
 	var rows *sql.Rows
 	var err error
 	if institutionType != "" {
-		query += " WHERE t.institution_type = ? ORDER BY total_points DESC LIMIT 10"
+		query += " WHERE t.institution_type = ? GROUP BY t.id ORDER BY bayesian_score DESC, num_ratings DESC LIMIT 10"
 		rows, err = db.Query(query, institutionType)
 	} else {
-		query += " ORDER BY total_points DESC LIMIT 10"
+		query += " GROUP BY t.id ORDER BY bayesian_score DESC, num_ratings DESC LIMIT 10"
 		rows, err = db.Query(query)
 	}
 	if err != nil {
@@ -1261,7 +1316,7 @@ func getTopSchools(institutionType string) ([]SchoolRanking, error) {
 	var result []SchoolRanking
 	for rows.Next() {
 		var r SchoolRanking
-		if err := rows.Scan(&r.ID, &r.Title, &r.InstitutionType, &r.TotalPoints); err != nil {
+		if err := rows.Scan(&r.ID, &r.Title, &r.InstitutionType, &r.AvgRating, &r.NumRatings, &r.BayesianScore); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -1270,6 +1325,46 @@ func getTopSchools(institutionType string) ([]SchoolRanking, error) {
 		result = []SchoolRanking{}
 	}
 	return result, nil
+}
+
+// ==================== Karma Voting ====================
+
+func voteOnRating(ratingID, voterID int64, vote int) error {
+	var authorID int64
+	if err := db.QueryRow("SELECT user_id FROM ratings WHERE id = ?", ratingID).Scan(&authorID); err != nil {
+		return fmt.Errorf("rating not found")
+	}
+	if authorID == voterID {
+		return fmt.Errorf("cannot vote on your own rating")
+	}
+	if vote == 0 {
+		db.Exec("DELETE FROM rating_votes WHERE rating_id = ? AND user_id = ?", ratingID, voterID)
+	} else {
+		if _, err := db.Exec(`INSERT INTO rating_votes (rating_id, user_id, vote) VALUES (?, ?, ?)
+			ON CONFLICT(rating_id, user_id) DO UPDATE SET vote = excluded.vote`, ratingID, voterID, vote); err != nil {
+			return err
+		}
+	}
+	return recalculateContributionPoints(authorID)
+}
+
+func voteOnComment(commentID, voterID int64, vote int) error {
+	var authorID int64
+	if err := db.QueryRow("SELECT user_id FROM discussion_comments WHERE id = ?", commentID).Scan(&authorID); err != nil {
+		return fmt.Errorf("comment not found")
+	}
+	if authorID == voterID {
+		return fmt.Errorf("cannot vote on your own comment")
+	}
+	if vote == 0 {
+		db.Exec("DELETE FROM comment_votes WHERE comment_id = ? AND user_id = ?", commentID, voterID)
+	} else {
+		if _, err := db.Exec(`INSERT INTO comment_votes (comment_id, user_id, vote) VALUES (?, ?, ?)
+			ON CONFLICT(comment_id, user_id) DO UPDATE SET vote = excluded.vote`, commentID, voterID, vote); err != nil {
+			return err
+		}
+	}
+	return recalculateContributionPoints(authorID)
 }
 
 func setUserContributionPoints(userID int64, points int) error {

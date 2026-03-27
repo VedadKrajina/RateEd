@@ -1329,3 +1329,56 @@ a.edu-inst-name:hover {
         gap: 0.3rem;
     }
 }
+
+/* ==================== Karma Vote Bar ==================== */
+.vote-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.vote-btn {
+    background: none;
+    border: 1px solid #D1D5DB;
+    border-radius: 4px;
+    padding: 0.15rem 0.45rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #6B7280;
+    line-height: 1;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.vote-btn:hover:not(:disabled) {
+    border-color: #9CA3AF;
+    background: #F3F4F6;
+}
+
+.vote-btn:disabled {
+    cursor: default;
+    opacity: 0.45;
+}
+
+.vote-btn.voted-up {
+    color: #16A34A;
+    border-color: #16A34A;
+    background: #F0FDF4;
+}
+
+.vote-btn.voted-down {
+    color: #DC2626;
+    border-color: #DC2626;
+    background: #FEF2F2;
+}
+
+.vote-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    min-width: 1.4rem;
+    text-align: center;
+    color: #6B7280;
+}
+
+.vote-count-pos { color: #16A34A; }
+.vote-count-neg { color: #DC2626; }

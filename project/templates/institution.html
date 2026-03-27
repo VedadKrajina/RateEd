@@ -3,8 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RateEd - Institution</title>
-    <link rel="stylesheet" href="/static/style.css">
+    {{if .Name}}<title>{{.Name}} Reviews &amp; Ratings - RateEd</title>
+    <meta name="description" content="Read student reviews and ratings for {{.Name}}{{if .City}} in {{.City}}{{end}}. Ratings across academic quality, infrastructure, student life, career support, and staff guidance on RateEd.">
+    <link rel="canonical" href="https://rateed.org/institution/{{.ID}}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://rateed.org/institution/{{.ID}}">
+    <meta property="og:title" content="{{.Name}} - Student Reviews on RateEd">
+    <meta property="og:description" content="Read honest student reviews and ratings for {{.Name}} on RateEd.">
+    <meta property="og:site_name" content="RateEd">
+    <meta property="og:image" content="https://rateed.org/static/og-image.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="{{.Name}} - RateEd">
+    <meta name="twitter:description" content="Student reviews for {{.Name}} on RateEd.">
+    {{else}}<title>RateEd - Institution Reviews</title>
+    <meta name="description" content="Read student reviews and ratings for educational institutions on RateEd.">
+    {{end}}<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <div class="header">
@@ -252,5 +265,6 @@
         </div>
     </div>
     <script src="/static/app.js"></script>
+    {{if .JSONLD}}<script type="application/ld+json">{{.JSONLD}}</script>{{end}}
 </body>
 </html>

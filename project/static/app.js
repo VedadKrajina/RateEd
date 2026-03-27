@@ -761,21 +761,32 @@ function initInstitutionPage() {
                     }
                     const verifiedText = (TRANSLATIONS[currentLang] || TRANSLATIONS.en).verified;
                     const verifiedBadge = r.is_verified ? `<span class="verified-badge" title="Verified">${verifiedText}</span>` : '';
+                    const roundedScore = Math.round(r.score);
+                    const canVote = currentUser && currentUser.id !== r.user_id;
+                    const upClass = r.user_vote === 1 ? 'voted-up' : '';
+                    const downClass = r.user_vote === -1 ? 'voted-down' : '';
+                    const voteCountClass = r.net_votes > 0 ? 'vote-count-pos' : r.net_votes < 0 ? 'vote-count-neg' : '';
                     return `
                         <div class="comment-card">
                             <div class="comment-header">
                                 <span>
                                     <a href="/profile/${escapeHtml(r.username)}" class="username-link">${escapeHtml(r.username)}</a>
                                     ${verifiedBadge}
-                                    <span class="breakdown-stars" style="margin-left:0.5rem"><span class="stars">${'\u2605'.repeat(r.score)}</span><span class="stars-muted">${'\u2605'.repeat(5 - r.score)}</span></span>
+                                    <span class="breakdown-stars" style="margin-left:0.5rem"><span class="stars">${'\u2605'.repeat(roundedScore)}</span><span class="stars-muted">${'\u2605'.repeat(5 - roundedScore)}</span></span>
                                 </span>
                                 <span class="comment-date">${timeAgo(r.created_at)}</span>
                             </div>
                             ${r.comment ? `<div class="comment-text">${escapeHtml(r.comment)}</div>` : ''}
                             ${breakdownHtml}
+                            <div class="vote-bar">
+                                <button class="vote-btn upvote-btn ${upClass}" data-id="${r.id}" data-type="rating" ${canVote ? '' : 'disabled'} title="Upvote">&#9650;</button>
+                                <span class="vote-count ${voteCountClass}">${r.net_votes}</span>
+                                <button class="vote-btn downvote-btn ${downClass}" data-id="${r.id}" data-type="rating" ${canVote ? '' : 'disabled'} title="Downvote">&#9660;</button>
+                            </div>
                         </div>
                     `;
                 }).join('');
+                bindVoteButtons();
             }
         } catch {
             instTitle.textContent = 'Institution not found';
@@ -995,6 +1006,7 @@ function initInstitutionPage() {
             }
             discussionList.innerHTML = renderCommentTree(comments);
             bindReplyButtons();
+            bindVoteButtons();
         } catch {
             discussionList.innerHTML = '<div class="empty-state">Failed to load discussion.</div>';
         }
@@ -1022,6 +1034,10 @@ function initInstitutionPage() {
             const pointsBadge = `<span class="comment-points">${node.contribution_points} pts</span>`;
             const deleteBtn = isOwn ? `<button class="comment-delete-btn" data-id="${node.id}" title="Delete your comment">&times;</button>` : '';
             const modDeleteBtn = (isMod && !isOwn) ? `<button class="comment-delete-btn mod-delete" data-id="${node.id}" title="Delete as moderator">&times;</button>` : '';
+            const canVote = currentUser && !isOwn;
+            const upClass = node.user_vote === 1 ? 'voted-up' : '';
+            const downClass = node.user_vote === -1 ? 'voted-down' : '';
+            const voteCountClass = node.net_votes > 0 ? 'vote-count-pos' : node.net_votes < 0 ? 'vote-count-neg' : '';
             let html = `
                 <div class="${cls}" data-id="${node.id}">
                     <div class="comment-header">
@@ -1037,6 +1053,11 @@ function initInstitutionPage() {
                         </span>
                     </div>
                     <div class="comment-text">${escapeHtml(node.content)}</div>
+                    <div class="vote-bar">
+                        <button class="vote-btn upvote-btn ${upClass}" data-id="${node.id}" data-type="comment" ${canVote ? '' : 'disabled'} title="Upvote">&#9650;</button>
+                        <span class="vote-count ${voteCountClass}">${node.net_votes}</span>
+                        <button class="vote-btn downvote-btn ${downClass}" data-id="${node.id}" data-type="comment" ${canVote ? '' : 'disabled'} title="Downvote">&#9660;</button>
+                    </div>
                     <button class="reply-btn" data-id="${node.id}">Reply</button>
                     <div class="inline-reply-form" id="reply-form-${node.id}">
                         <textarea placeholder="Write a reply..." id="reply-text-${node.id}"></textarea>
@@ -1051,6 +1072,47 @@ function initInstitutionPage() {
         }
 
         return roots.map(r => renderNode(r, false)).join('');
+    }
+
+    function bindVoteButtons() {
+        document.querySelectorAll('.vote-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!currentUser) {
+                    alert('You must be logged in to vote.');
+                    return;
+                }
+                const id = btn.dataset.id;
+                const type = btn.dataset.type;
+                const isUp = btn.classList.contains('upvote-btn');
+                const clickedVote = isUp ? 1 : -1;
+
+                // Toggle off if same vote already active
+                const voteBar = btn.closest('.vote-bar');
+                const alreadyUp = voteBar.querySelector('.upvote-btn').classList.contains('voted-up');
+                const alreadyDown = voteBar.querySelector('.downvote-btn').classList.contains('voted-down');
+                const currentVote = alreadyUp ? 1 : alreadyDown ? -1 : 0;
+                const newVote = currentVote === clickedVote ? 0 : clickedVote;
+
+                try {
+                    const endpoint = type === 'rating'
+                        ? `/api/institutions/${instId}/ratings/${id}/vote`
+                        : `/api/institutions/${instId}/discussion/${id}/vote`;
+                    await api('POST', endpoint, { vote: newVote });
+
+                    if (type === 'rating') {
+                        await loadInstitution();
+                    } else {
+                        await loadDiscussion();
+                    }
+                    const me = await api('GET', '/api/me');
+                    currentUser = me;
+                    updatePointsBadge(me.contribution_points);
+                    loadLeaderboard();
+                } catch (err) {
+                    alert(err.message);
+                }
+            });
+        });
     }
 
     function bindReplyButtons() {
